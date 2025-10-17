@@ -1,0 +1,43 @@
+# High Quality Rendering Configuration
+
+# Paths
+SMPLX_MODEL_PATH: 'models/smplx'
+PYMAFX_MODEL_PATH: 'models/pymafx'
+DATA_PATH: 'data/videos'
+OUTPUT_PATH: 'outputs'
+
+# PyMAF-X settings
+PYMAFX:
+  MODEL_TYPE: 'smplx'
+  BATCH_SIZE: 1
+  IMAGE_SIZE: 224
+  DEVICE: 'cuda'
+
+# SMPL-X settings
+SMPLX:
+  MODEL_TYPE: 'smplx'
+  GENDER: 'neutral'
+  NUM_BETAS: 10
+  NUM_EXPRESSION_COEFFS: 10
+  USE_FACE_CONTOUR: false
+
+# High-quality rendering settings
+RENDERING:
+  IMAGE_SIZE: [1920, 1080]  # Full HD resolution
+  CAMERA_DISTANCE: 2.5
+  CAMERA_CENTER: [0, 0, 0]
+  LIGHT_INTENSITY: 4.0       # Brighter lighting
+  BACKGROUND_COLOR: [255, 255, 255]  # White background
+
+# Evaluation metrics
+METRICS:
+  COMPUTE_PSNR: true
+  COMPUTE_SSIM: true
+  COMPUTE_LPIPS: true
+  COMPUTE_MESH_ERROR: true
+
+# Processing settings
+PROCESSING:
+  FPS: 30
+  MAX_FRAMES: null  # Process all frames
+  FRAME_SKIP: 1     # Don't skip any frames
