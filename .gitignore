@@ -212,6 +212,7 @@ models/smplx/*.npz
 models/smplx/*.pkl
 models/pymafx/*.pth
 models/pymafx/*.pt
+models/smpl/*.pkl
 
 # Ignore data files but keep directory structure
 data/videos/*
@@ -226,3 +227,7 @@ outputs/renders/*
 !outputs/renders/.gitkeep
 outputs/metrics/*
 !outputs/metrics/.gitkeep
+outputs/params/*
+outputs/frames/*
+
+*.DS_Store

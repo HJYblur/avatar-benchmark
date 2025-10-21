@@ -1,6 +1,7 @@
 # Configuration for Avatar Evaluation Baseline
 
 # Paths
+SMPL_MODEL_PATH: 'models/smpl'
 SMPLX_MODEL_PATH: 'models/smplx'
 PYMAFX_MODEL_PATH: 'models/pymafx'
 DATA_PATH: 'data/videos'
@@ -11,7 +12,12 @@ PYMAFX:
   MODEL_TYPE: 'smplx'
   BATCH_SIZE: 1
   IMAGE_SIZE: 224
-  DEVICE: 'cuda'  # 'cuda' or 'cpu'
+  DEVICE: 'cpu'  # 'cuda' or 'cpu'
+
+# SMPL settings
+SMPL:
+  MODEL_TYPE: 'smpl'
+  GENDER: 'neutral'
 
 # SMPL-X settings
 SMPLX:
