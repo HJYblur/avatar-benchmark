@@ -215,10 +215,7 @@ models/pymafx/*.pt
 models/smpl/*.pkl
 
 # Ignore data files but keep directory structure
-data/videos/*
-!data/videos/.gitkeep
-data/processed/*
-!data/processed/.gitkeep
+data/*
 
 # Ignore output files but keep directory structure
 outputs/meshes/*

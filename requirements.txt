@@ -32,3 +32,7 @@ easydict>=1.9
 
 # Utilities
 joblib>=1.0.0
+
+# Additional libraries
+h5py>=3.1.0
+jsonschema>=3.2.0
