@@ -200,17 +200,3 @@ The pipeline computes the following metrics:
 
 - **SMPL-X**: [https://smpl-x.is.tue.mpg.de/](https://smpl-x.is.tue.mpg.de/)
 - **PyMAF-X**: [https://github.com/HongwenZhang/PyMAF-X](https://github.com/HongwenZhang/PyMAF-X)
-
-## License
-
-This project follows the licenses of the respective components:
-- SMPL-X model license
-- PyMAF-X license
-
-## Citation
-
-If you use this benchmark in your research, please cite the relevant papers for SMPL-X and PyMAF-X.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
