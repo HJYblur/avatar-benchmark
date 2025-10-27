@@ -228,3 +228,4 @@ outputs/params/*
 outputs/frames/*
 
 *.DS_Store
+.vscode
