@@ -5,14 +5,14 @@ import trimesh
 import os
 import pickle
 
-# --- 1. Configuration ---
-# --------------------------
-# ⚠️ UPDATE THIS: Path to the directory containing SMPL_MALE.pkl, SMPL_FEMALE.pkl, etc.
+# --- Configuration ---
+# Path to the directory containing SMPL_MALE.pkl, SMPL_FEMALE.pkl, etc.
 SMPL_MODEL_DIR = "models/smpl/"
 
-# ⚠️ UPDATE THIS: Path to a .npz file from the PeopleSnapshot dataset
+# Path to a .npz file from the PeopleSnapshot dataset
 POSE_FILE_PATH = "data/female-3-casual/poses.npz"
 SHAPE_FILE_PATH = "data/female-3-casual/consensus.pkl"
+TEXTURE_FILE_PATH = "data/female-3-casual/tex-female-3-casual.jpg"
 # --------------------------
 
 
@@ -39,11 +39,14 @@ def visualize_first_frame(model_dir, pose_npz_path, shape_npz_path):
     if not os.path.exists(shape_npz_path):
         print(f"Error: PeopleSnapshot file not found at: {shape_npz_path}")
         return
-
+    if not os.path.exists(TEXTURE_FILE_PATH):
+        print(f"Error: Texture file not found at: {TEXTURE_FILE_PATH}")
+        return
     # --- 3. Load PeopleSnapshot Data ---
     try:
         # shape = pickle.load(open(shape_npz_path, "rb"), encoding="latin")
         pose_data = np.load(pose_npz_path, allow_pickle=True)
+        texture = trimesh.util.load_texture(TEXTURE_FILE_PATH)
     except Exception as e:
         print(f"Error loading .npz file: {e}")
         return
@@ -61,7 +64,6 @@ def visualize_first_frame(model_dir, pose_npz_path, shape_npz_path):
     # print(f"Loaded first frame translation (transl): {trans}")
 
     # --- 4. Load SMPL Model ---
-    # We load the model with batch_size=1
     model = smplx.SMPL(model_path=model_dir, gender=gender, batch_size=1).to(device)
 
     # --- 5. Prepare Tensors ---
@@ -76,7 +78,7 @@ def visualize_first_frame(model_dir, pose_npz_path, shape_npz_path):
 
     # --- 6. Generate Mesh (Forward Pass) ---
     print("Generating mesh...")
-    with torch.no_grad():  # We don't need gradients for visualization
+    with torch.no_grad():
         model_output = model(
             betas=betas_tensor,
             body_pose=body_pose,
@@ -92,6 +94,9 @@ def visualize_first_frame(model_dir, pose_npz_path, shape_npz_path):
     print(
         f"Mesh generated with {vertices.shape[0]} vertices and {faces.shape[0]} faces."
     )
+    
+    # Map the given texture on the mesh
+    
 
     # --- 7. Visualize ---
     print("Launching visualization...")
@@ -115,5 +120,4 @@ def visualize_first_frame(model_dir, pose_npz_path, shape_npz_path):
 
 
 if __name__ == "__main__":
-    # ⚠️ UPDATE the paths at the top of the script before running
     visualize_first_frame(SMPL_MODEL_DIR, POSE_FILE_PATH, SHAPE_FILE_PATH)

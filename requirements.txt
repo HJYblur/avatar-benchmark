@@ -8,31 +8,9 @@ tqdm>=4.62.0
 # Deep learning frameworks
 torch>=1.10.0
 torchvision>=0.11.0
-opencv-python>=4.5.0
 
 # 3D and mesh processing
 trimesh>=3.9.0
 pyrender>=0.1.45
 smplx>=0.1.28
-
-# Video processing
-imageio>=2.9.0
-imageio-ffmpeg>=0.4.5
-
-# Visualization
-matplotlib>=3.3.0
-
-# Metrics
-scikit-image>=0.18.0
-lpips>=0.1.4
-
-# Configuration
-pyyaml>=5.4.0
-easydict>=1.9
-
-# Utilities
-joblib>=1.0.0
-
-# Additional libraries
-h5py>=3.1.0
-jsonschema>=3.2.0
+chumpy>=0.70
