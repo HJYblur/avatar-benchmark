@@ -17,6 +17,7 @@ smpl_uv_template: "models/smpl/smpl_uv.obj"
 
 # Output
 output_folder: "output/people_snapshot_public/${subject}"
+log_folder: "log/people_snapshot_public"
 
 # Rendering camera defaults
 camera_dist: 0.5

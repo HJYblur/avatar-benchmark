@@ -206,12 +206,16 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Project specific# Ignore data files but keep directory structure
+# Project specific
+# Ignore data files
 data/*
 
-# Ignore output files but keep directory structure
-output/*
+# Ignore output files
+log/*
 
+# Ignore SMPL model files
+models/smplx/
+
+# macOS specific files
 *.DS_Store
 .vscode
-models/smplx/

@@ -8,7 +8,10 @@ import numpy as np
 import os
 from pathlib import Path
 from PIL import Image
-from pytorch3d.io import load_obj
+from tqdm import tqdm
+import time
+from datetime import datetime
+import csv
 from pytorch3d.renderer import (
     FoVPerspectiveCameras,
     MeshRenderer,
@@ -53,6 +56,7 @@ if __name__ == "__main__":
     TEXTURE_FILE_PATH = os.path.join(candidate_base, cfg["texture_filename"])
     SMPL_UV_TEMPLATE_PATH = cfg["smpl_uv_template"]
     OUTPUT_IMAGE_FOLDER = cfg["output_folder"]
+    LOG_FILE_PATH = cfg.get("log_folder", "logs")
 
     # Quick checks
     if not file_check(
@@ -101,7 +105,18 @@ if __name__ == "__main__":
     axis_scale = cfg.get("axis_scale", 0.2)
 
     # Loop over frames and render
-    for FRAME_NUM in range(n_frames):
+    inference_times = []
+    os.makedirs(LOG_FILE_PATH, exist_ok=True)
+    csv_path = os.path.join(LOG_FILE_PATH, f"{subject}-{datetime.now()}.csv")
+    csv_writer = csv.writer(open(csv_path, "a", newline=""))
+    csv_writer.writerow(["frame", "inference_time"])
+    overall_start = time.perf_counter()
+
+    for FRAME_NUM in tqdm(range(n_frames)):
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        t0 = time.perf_counter()
+
         betas_tensor = torch.tensor(betas, dtype=torch.float32).unsqueeze(0).to(device)
         poses_frame = torch.tensor(poses[FRAME_NUM], dtype=torch.float32).to(device)
         trans_frame = torch.tensor(trans[FRAME_NUM], dtype=torch.float32).to(device)
@@ -127,6 +142,13 @@ if __name__ == "__main__":
         )
 
         images = renderer(mesh)
+
+        if device.type == "cuda":
+            torch.cuda.synchronize()
+        t1 = time.perf_counter()
+        inference_times.append(t1 - t0)
+        csv_writer.writerow([FRAME_NUM, t1 - t0])
+
         image = images[0, ..., :3].cpu().numpy()
 
         output_image_path = os.path.join(
@@ -136,4 +158,14 @@ if __name__ == "__main__":
         # save_image_with_axes(
         #     image, cameras, device, image_size, axis_scale, output_image_path
         # )
-        print(f"Rendered image saved to: {output_image_path}")
+        # print(f"Rendered image saved to: {output_image_path}")
+
+    # Summary
+    overall_end = time.perf_counter()
+    avg_inf = sum(inference_times) / n_frames if n_frames else 0.0
+    print("===== Timing summary =====")
+    print(f"Frames processed: {n_frames}")
+    print(f"Average inference time / frame: {avg_inf:.4f} s")
+    print(f"Total elapsed time            : {overall_end - overall_start:.4f} s")
+    csv_writer.writerow(["Total elapsed time", "Average inference time"])
+    csv_writer.writerow([overall_end - overall_start, avg_inf])
