@@ -213,4 +213,5 @@ data/*
 output/*
 
 *.DS_Store
-.vscodemodels/smplx/
+.vscode
+models/smplx/
