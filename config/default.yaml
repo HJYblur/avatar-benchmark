@@ -3,7 +3,8 @@
 
 smpl_folder: "models"
 people_snapshot_folder: "data/people_snapshot_public"
-subject: "female-1-casual"
+gender: "female"
+subject: "${gender}-1-casual"
 
 # Filenames inside the subject folder
 pose_filename: "reconstructed_poses.hdf5"
@@ -18,9 +19,7 @@ smpl_uv_template: "models/smpl/smpl_uv.obj"
 output_folder: "output/people_snapshot_public/${subject}"
 
 # Rendering camera defaults
-camera_dist: 2.7
+camera_dist: 0.5
 camera_elev: -90.0
 camera_azim: 0.0
-
-# Optional: gender for the SMPL model (neutral/female/male)
-gender: "neutral"
+camera_fov: 30.0
