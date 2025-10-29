@@ -1,0 +1,26 @@
+# Default config for visualize.py (YAML)
+# Change `subject` to the PeopleSnapshot subject folder you want to render.
+
+smpl_folder: "models"
+people_snapshot_folder: "data/people_snapshot_public"
+subject: "female-1-casual"
+
+# Filenames inside the subject folder
+pose_filename: "reconstructed_poses.hdf5"
+shape_filename: "consensus.pkl"
+# e.g. tex-female-1-casual.jpg
+texture_filename: "tex-${subject}.jpg"
+
+# SMPL UV template (OBJ with UV coordinates)
+smpl_uv_template: "models/smpl/smpl_uv.obj"
+
+# Output
+output_folder: "output/people_snapshot_public/${subject}"
+
+# Rendering camera defaults
+camera_dist: 2.7
+camera_elev: -90.0
+camera_azim: 0.0
+
+# Optional: gender for the SMPL model (neutral/female/male)
+gender: "neutral"
