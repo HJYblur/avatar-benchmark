@@ -206,26 +206,11 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Project specific
-# Ignore large model files but keep directory structure
-models/smplx/*.npz
-models/smplx/*.pkl
-models/pymafx/*.pth
-models/pymafx/*.pt
-models/smpl/*.pkl
-
-# Ignore data files but keep directory structure
+# Project specific# Ignore data files but keep directory structure
 data/*
 
 # Ignore output files but keep directory structure
-outputs/meshes/*
-!outputs/meshes/.gitkeep
-outputs/renders/*
-!outputs/renders/.gitkeep
-outputs/metrics/*
-!outputs/metrics/.gitkeep
-outputs/params/*
-outputs/frames/*
+output/*
 
 *.DS_Store
 .vscode
