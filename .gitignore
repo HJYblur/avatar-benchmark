@@ -212,6 +212,7 @@ data/*
 
 # Ignore output files
 log/*
+output/*
 
 # Ignore SMPL model files
 models/smplx/
