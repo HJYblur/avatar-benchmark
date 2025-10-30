@@ -27,12 +27,14 @@ from pytorch3d.renderer import (
 from pytorch3d.structures import Meshes
 from pytorch3d.transforms import euler_angles_to_matrix
 from src.utils.config_utils import load_config
-from src.utils.data_loader import load_smpl_shape, load_smpl_pose
-from src.utils.render_utils import (
+from src.utils.smpl_loader import load_smpl_shape, load_smpl_pose
+from src.utils.data_loader import (
     file_check,
     load_sequence,
     uv_loader,
     texture_loader,
+)
+from src.utils.render_utils import (
     renderer_setup,
     save_image_with_axes,
     save_image,

@@ -8,7 +8,8 @@ subject: "${gender}-4-casual"
 
 # Filenames inside the subject folder
 video_filename: "${subject}.mp4"
-frame_folder_name: "frames"
+mask_filename: "masks.hdf5"
+frame_folder_name: "frames_without_mask"
 pose_filename: "reconstructed_poses.hdf5"
 shape_filename: "consensus.pkl"
 texture_filename: "tex-${subject}.jpg"
