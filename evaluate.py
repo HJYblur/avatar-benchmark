@@ -2,7 +2,9 @@ import os
 import numpy as np
 from PIL import Image
 import numpy as np
+import matplotlib.pyplot as plt
 from src.utils.config_utils import load_config
+from src.utils.data_loader import mask_loader
 from src.preprocessing.video_preprocessor import VideoPreprocessor
 from src.metrics.evaluator import MetricsCalculator
 
@@ -14,16 +16,18 @@ if __name__ == "__main__":
     people_snapshot_folder = cfg["people_snapshot_folder"]
     frame_folder_name = cfg.get("frame_folder_name", "frames")
     video_filename = cfg.get("video_filename", f"{subject}.mp4")
+    mask_filename = cfg.get("mask_filename", "masks.hdf5")
     output_folder = cfg["output_folder"]
 
     # Load original images
     frame_folder = os.path.join(people_snapshot_folder, subject, frame_folder_name)
+    mask_file = os.path.join(people_snapshot_folder, subject, mask_filename)
     if not os.path.exists(frame_folder):
-        os.makedirs(frame_folder)
+        mask_arr = mask_loader(mask_file)
         video_processor = VideoPreprocessor()
         video_path = os.path.join(people_snapshot_folder, subject, video_filename)
-        print(f"Extracting frames from video: {video_path}")
-        video_processor.extract_frames(video_path, frame_folder)
+        print(f"Extracting unmasked frames from video: {video_path}")
+        video_processor.extract_frames_without_mask(video_path, mask_arr, frame_folder)
         print(f"Frames extracted to: {frame_folder}")
 
     original_frames = []
@@ -80,3 +84,16 @@ if __name__ == "__main__":
     # print(f"PSNR: {np.mean(psnr)}")
     # print(f"SSIM: {np.mean(ssim)}")
     # print(f"LPIPS: {np.mean(lpips)}")
+
+    # Load example comparison image
+    plt.figure(figsize=(10, 5))
+    plt.subplot(1, 2, 1)
+    plt.title("Original Frame")
+    plt.imshow(original_frames[0])
+    plt.axis("off")
+
+    plt.subplot(1, 2, 2)
+    plt.title("Reconstructed Frame")
+    plt.imshow(reconstructed_frames[0])
+    plt.axis("off")
+    plt.show()

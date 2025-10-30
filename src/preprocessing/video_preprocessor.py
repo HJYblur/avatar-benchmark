@@ -129,7 +129,7 @@ class VideoPreprocessor:
 
             # Apply mask to frame
             if mask is not None:
-                frame = cv2.bitwise_and(frame, frame, mask=mask)
+                frame = cv2.bitwise_and(frame, frame, mask=mask[frame_count])
 
             # Resize frame to the fixed resolution before saving
             frame_resized = cv2.resize(frame, resolution, interpolation=cv2.INTER_AREA)
