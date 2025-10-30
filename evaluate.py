@@ -1,4 +1,5 @@
 import os
+import re
 import numpy as np
 from PIL import Image
 import numpy as np
@@ -30,27 +31,60 @@ if __name__ == "__main__":
         video_processor.extract_frames_without_mask(video_path, mask_arr, frame_folder)
         print(f"Frames extracted to: {frame_folder}")
 
+    def numeric_key(fname: str):
+        m = re.search(r"(\d+)", fname)
+        return int(m.group(1)) if m else float("inf")
+
     original_frames = []
+    original_names = []
     print(f"Loading frames from: {frame_folder}")
-    for frame_file in os.listdir(frame_folder):
+    orig_files = sorted(
+        [
+            f
+            for f in os.listdir(frame_folder)
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        ],
+        key=numeric_key,
+    )
+    for frame_file in orig_files:
         frame_path = os.path.join(frame_folder, frame_file)
         image = np.array(Image.open(frame_path))
         original_frames.append(image)
+        original_names.append(frame_file)
     n_frames = len(original_frames)
 
     # Load reconstructed images
     reconstructed_frames = []
+    reconstructed_names = []
     print(f"Loading reconstructed frames from: {output_folder}")
-    for frame_file in os.listdir(output_folder):
+    recon_files = sorted(
+        [
+            f
+            for f in os.listdir(output_folder)
+            if f.lower().endswith((".png", ".jpg", ".jpeg"))
+        ],
+        key=numeric_key,
+    )
+    for frame_file in recon_files:
         frame_path = os.path.join(output_folder, frame_file)
         image = np.array(Image.open(frame_path))
         reconstructed_frames.append(image)
+        reconstructed_names.append(frame_file)
     if len(reconstructed_frames) != n_frames:
         print("Warning: Number of reconstructed frames does not match original frames.")
         min_frames = min(len(reconstructed_frames), n_frames)
         original_frames = original_frames[:min_frames]
         reconstructed_frames = reconstructed_frames[:min_frames]
         print(f"Using {min_frames} frames for evaluation.")
+
+    # Print debug mapping between original and reconstructed filenames for the first few frames
+    print("Example filename mapping (original -> reconstructed):")
+    for i in range(min(10, len(original_frames))):
+        orig_name = original_names[i] if i < len(original_names) else "<missing>"
+        recon_name = (
+            reconstructed_names[i] if i < len(reconstructed_names) else "<missing>"
+        )
+        print(f"  {i:03d}: {orig_name}  ->  {recon_name}")
 
     # Metric calculation
     metrics_calculator = MetricsCalculator(
