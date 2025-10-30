@@ -39,6 +39,7 @@ from src.utils.render_utils import (
     save_image_with_axes,
     save_image,
 )
+from src.utils.render_utils import camera_loader
 
 
 if __name__ == "__main__":
@@ -91,6 +92,18 @@ if __name__ == "__main__":
 
     # Setup renderer (returns renderer and cameras)
     image_size = cfg.get("image_size", 512)
+
+    # Try loading dataset camera metadata (camera.pkl) if available
+    camera_metadata = None
+    camera_path = os.path.join(candidate_base, "camera.pkl")
+    if os.path.exists(camera_path):
+        try:
+            camera_metadata = camera_loader(camera_path)
+            print("Loaded camera metadata keys:", list(camera_metadata.keys()))
+        except Exception as e:
+            print(f"Failed to load camera.pkl: {e}")
+            camera_metadata = None
+
     renderer, cameras = renderer_setup(
         device,
         cam_dist=cfg.get("camera_dist", 2.7),
@@ -98,6 +111,7 @@ if __name__ == "__main__":
         cam_azim=cfg.get("camera_azim", 0.0),
         camera_fov=cfg.get("camera_fov", 30.0),
         image_size=image_size,
+        # camera_metadata=camera_metadata,
     )
 
     # Rotation fix used previously to orient mesh

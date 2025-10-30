@@ -25,4 +25,4 @@ log_folder: "log/people_snapshot_public"
 camera_dist: 0.5
 camera_elev: -90.0
 camera_azim: 0.0
-camera_fov: 30.0
+camera_fov: 20.0

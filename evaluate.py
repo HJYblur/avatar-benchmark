@@ -77,15 +77,6 @@ if __name__ == "__main__":
         reconstructed_frames = reconstructed_frames[:min_frames]
         print(f"Using {min_frames} frames for evaluation.")
 
-    # Print debug mapping between original and reconstructed filenames for the first few frames
-    print("Example filename mapping (original -> reconstructed):")
-    for i in range(min(10, len(original_frames))):
-        orig_name = original_names[i] if i < len(original_names) else "<missing>"
-        recon_name = (
-            reconstructed_names[i] if i < len(reconstructed_names) else "<missing>"
-        )
-        print(f"  {i:03d}: {orig_name}  ->  {recon_name}")
-
     # Metric calculation
     metrics_calculator = MetricsCalculator(
         compute_psnr=True,
@@ -94,40 +85,40 @@ if __name__ == "__main__":
         compute_mesh_error=False,
     )
 
-    # Test first frame
-    psnr_value = metrics_calculator.calculate_psnr(
-        original_frames[0], reconstructed_frames[0]
-    )
-    ssim_value = metrics_calculator.calculate_ssim(
-        original_frames[0], reconstructed_frames[0]
-    )
-    lpips_value = metrics_calculator.calculate_lpips(
-        original_frames[0], reconstructed_frames[0]
-    )
-    print(f"Frame 0 - PSNR: {psnr_value}, SSIM: {ssim_value}, LPIPS: {lpips_value}")
+    # # Test first frame
+    # psnr_value = metrics_calculator.calculate_psnr(
+    #     original_frames[0], reconstructed_frames[0]
+    # )
+    # ssim_value = metrics_calculator.calculate_ssim(
+    #     original_frames[0], reconstructed_frames[0]
+    # )
+    # lpips_value = metrics_calculator.calculate_lpips(
+    #     original_frames[0], reconstructed_frames[0]
+    # )
+    # print(f"Frame 0 - PSNR: {psnr_value}, SSIM: {ssim_value}, LPIPS: {lpips_value}")
 
-    # psnr, ssim, lpips = [], [], []
-    # for img1, img2 in zip(original_frames, reconstructed_frames):
-    #     psnr_value = metrics_calculator.calculate_psnr(img1, img2)
-    #     ssim_value = metrics_calculator.calculate_ssim(img1, img2)
-    #     lpips_value = metrics_calculator.calculate_lpips(img1, img2)
-    #     psnr.append(psnr_value)
-    #     ssim.append(ssim_value)
-    #     lpips.append(lpips_value)
+    psnr, ssim, lpips = [], [], []
+    for img1, img2 in zip(original_frames, reconstructed_frames):
+        psnr_value = metrics_calculator.calculate_psnr(img1, img2)
+        ssim_value = metrics_calculator.calculate_ssim(img1, img2)
+        lpips_value = metrics_calculator.calculate_lpips(img1, img2)
+        psnr.append(psnr_value)
+        ssim.append(ssim_value)
+        lpips.append(lpips_value)
 
-    # print(f"PSNR: {np.mean(psnr)}")
-    # print(f"SSIM: {np.mean(ssim)}")
-    # print(f"LPIPS: {np.mean(lpips)}")
+    print(f"PSNR: {np.mean(psnr)}")
+    print(f"SSIM: {np.mean(ssim)}")
+    print(f"LPIPS: {np.mean(lpips)}")
 
     # Load example comparison image
     plt.figure(figsize=(10, 5))
     plt.subplot(1, 2, 1)
-    plt.title("Original Frame")
+    plt.title("Original Frame Sample")
     plt.imshow(original_frames[0])
     plt.axis("off")
 
     plt.subplot(1, 2, 2)
-    plt.title("Reconstructed Frame")
+    plt.title("Reconstructed Frame Sample")
     plt.imshow(reconstructed_frames[0])
     plt.axis("off")
     plt.show()
