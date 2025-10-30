@@ -4,12 +4,13 @@
 smpl_folder: "models"
 people_snapshot_folder: "data/people_snapshot_public"
 gender: "female"
-subject: "${gender}-1-casual"
+subject: "${gender}-4-casual"
 
 # Filenames inside the subject folder
+video_filename: "${subject}.mp4"
+frame_folder_name: "frames"
 pose_filename: "reconstructed_poses.hdf5"
 shape_filename: "consensus.pkl"
-# e.g. tex-female-1-casual.jpg
 texture_filename: "tex-${subject}.jpg"
 
 # SMPL UV template (OBJ with UV coordinates)

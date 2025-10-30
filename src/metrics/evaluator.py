@@ -19,7 +19,7 @@ class MetricsCalculator:
         self,
         compute_psnr: bool = True,
         compute_ssim: bool = True,
-        compute_lpips: bool = False,
+        compute_lpips: bool = True,
         compute_mesh_error: bool = True,
     ):
         """
@@ -56,6 +56,7 @@ class MetricsCalculator:
         Returns:
             PSNR value
         """
+        print(img1.shape, img2.shape)
         return psnr(img1, img2, data_range=255)
 
     def calculate_ssim(self, img1: np.ndarray, img2: np.ndarray) -> float:
