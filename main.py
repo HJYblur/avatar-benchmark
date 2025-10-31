@@ -53,10 +53,9 @@ if __name__ == "__main__":
     SMPL_FOLDER = cfg["smpl_folder"]
     PEOPLE_SNAPSHOT_FOLDER = cfg["people_snapshot_folder"]
     subject = cfg["subject"]
-    candidate_base = os.path.join(PEOPLE_SNAPSHOT_FOLDER, subject)
-    POSE_FILE_PATH = os.path.join(candidate_base, cfg["pose_filename"])
-    SHAPE_FILE_PATH = os.path.join(candidate_base, cfg["shape_filename"])
-    TEXTURE_FILE_PATH = os.path.join(candidate_base, cfg["texture_filename"])
+    POSE_FILE_PATH = cfg["pose_filename"]
+    SHAPE_FILE_PATH = cfg["shape_filename"]
+    TEXTURE_FILE_PATH = cfg["texture_filename"]
     SMPL_UV_TEMPLATE_PATH = cfg["smpl_uv_template"]
     OUTPUT_IMAGE_FOLDER = cfg["output_folder"]
     LOG_FILE_PATH = cfg.get("log_folder", "logs")
@@ -95,7 +94,7 @@ if __name__ == "__main__":
 
     # Try loading dataset camera metadata (camera.pkl) if available
     camera_metadata = None
-    camera_path = os.path.join(candidate_base, "camera.pkl")
+    camera_path = cfg.get("camera_filename", "")
     if os.path.exists(camera_path):
         try:
             camera_metadata = camera_loader(camera_path)

@@ -7,12 +7,13 @@ gender: "female"
 subject: "${gender}-4-casual"
 
 # Filenames inside the subject folder
-video_filename: "${subject}.mp4"
-mask_filename: "masks.hdf5"
-frame_folder_name: "frames_without_mask"
-pose_filename: "reconstructed_poses.hdf5"
-shape_filename: "consensus.pkl"
-texture_filename: "tex-${subject}.jpg"
+camera_filename: "${people_snapshot_folder}/${subject}/camera.pkl"
+video_filename: "${people_snapshot_folder}/${subject}/${subject}.mp4"
+mask_filename: "${people_snapshot_folder}/${subject}/masks.hdf5"
+frame_folder_name: "${people_snapshot_folder}/${subject}/frames_without_mask"
+pose_filename: "${people_snapshot_folder}/${subject}/reconstructed_poses.hdf5"
+shape_filename: "${people_snapshot_folder}/${subject}/consensus.pkl"
+texture_filename: "${people_snapshot_folder}/${subject}/tex-${subject}.jpg"
 
 # SMPL UV template (OBJ with UV coordinates)
 smpl_uv_template: "models/smpl/smpl_uv.obj"

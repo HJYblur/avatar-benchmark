@@ -15,20 +15,19 @@ if __name__ == "__main__":
     cfg = load_config("config/default.yaml")
     subject = cfg["subject"]
     people_snapshot_folder = cfg["people_snapshot_folder"]
-    frame_folder_name = cfg.get("frame_folder_name", "frames")
+    frame_folder = cfg.get("frame_folder", "frames")
     video_filename = cfg.get("video_filename", f"{subject}.mp4")
     mask_filename = cfg.get("mask_filename", "masks.hdf5")
     output_folder = cfg["output_folder"]
 
     # Load original images
-    frame_folder = os.path.join(people_snapshot_folder, subject, frame_folder_name)
-    mask_file = os.path.join(people_snapshot_folder, subject, mask_filename)
     if not os.path.exists(frame_folder):
-        mask_arr = mask_loader(mask_file)
+        mask_arr = mask_loader(mask_filename)
         video_processor = VideoPreprocessor()
-        video_path = os.path.join(people_snapshot_folder, subject, video_filename)
-        print(f"Extracting unmasked frames from video: {video_path}")
-        video_processor.extract_frames_without_mask(video_path, mask_arr, frame_folder)
+        print(f"Extracting unmasked frames from video: {video_filename}")
+        video_processor.extract_frames_without_mask(
+            video_filename, mask_arr, frame_folder
+        )
         print(f"Frames extracted to: {frame_folder}")
 
     def numeric_key(fname: str):
