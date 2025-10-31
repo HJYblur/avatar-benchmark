@@ -177,3 +177,42 @@ class VideoPreprocessor:
             resized_frames.append(resized)
 
         return resized_frames
+
+    def images_to_video(
+        self,
+        frame_paths: List[str],
+        output_video_path: str,
+        fps: int = 30,
+        remove_frames: bool = False,
+        resolution: Tuple[int, int] = (512, 512),
+    ):
+        """
+        Generate a video file from a list of frame images.
+
+        Args:
+            frame_paths: List of paths to frame images
+            output_video_path: Path to save the output video file
+            fps: Frames per second for the output video
+            resolution: Resolution (width, height) for the output video
+        """
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        video_writer = cv2.VideoWriter(output_video_path, fourcc, fps, resolution)
+
+        for frame_path in frame_paths:
+            frame = cv2.imread(frame_path)
+            if frame is None:
+                print(f"Warning: Could not read frame {frame_path}")
+                continue
+
+            frame_resized = cv2.resize(
+                frame, resolution, interpolation=cv2.INTER_LINEAR
+            )
+            video_writer.write(frame_resized)
+
+        video_writer.release()
+        print(f"Video saved to {output_video_path}")
+
+        if remove_frames:
+            for frame_path in frame_paths:
+                os.remove(frame_path)
+            print(f"Removed {len(frame_paths)} temporary frame files.")

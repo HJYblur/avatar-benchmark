@@ -39,13 +39,17 @@ def load_sequence(shape_path: str, pose_path: str, load_shape_fn, load_pose_fn):
     load_smpl_pose.
     """
     shape_data = load_shape_fn(shape_path)
-    pose_data = load_pose_fn(pose_path)
+    if pose_path.endswith(".hdf5") or pose_path.endswith(".h5"):
+        pose_data = load_pose_fn(pose_path)
+    elif pose_path.endswith(".npz"):
+        pose_data = np.load(pose_path)
 
     betas = shape_data["betas"].squeeze()
     if betas.shape[0] > 10:
         betas = betas[:10]
 
-    poses = pose_data["pose"]
+    pose_key = "pose" if "pose" in pose_data else "poses"
+    poses = pose_data[pose_key]
     trans = pose_data["trans"]
     return betas, poses, trans
 

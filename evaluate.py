@@ -15,7 +15,7 @@ if __name__ == "__main__":
     cfg = load_config("config/default.yaml")
     subject = cfg["subject"]
     people_snapshot_folder = cfg["people_snapshot_folder"]
-    frame_folder = cfg.get("frame_folder", "frames")
+    frame_folder = cfg.get("frame_folder_name", "frames")
     video_filename = cfg.get("video_filename", f"{subject}.mp4")
     mask_filename = cfg.get("mask_filename", "masks.hdf5")
     output_folder = cfg["output_folder"]
