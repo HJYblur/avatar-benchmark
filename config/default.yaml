@@ -4,7 +4,7 @@
 smpl_folder: "models"
 people_snapshot_folder: "data/people_snapshot_public"
 gender: "female"
-subject: "${gender}-4-casual"
+subject: "${gender}-3-casual"
 
 # Filenames inside the subject folder
 camera_filename: "${people_snapshot_folder}/${subject}/camera.pkl"
