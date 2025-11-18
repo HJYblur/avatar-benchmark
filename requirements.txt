@@ -22,3 +22,4 @@ pyrender>=0.1.45
 smplx>=0.1.28
 chumpy>=0.70
 scikit-image>=0.18.0
+plyfile>=0.7.2
