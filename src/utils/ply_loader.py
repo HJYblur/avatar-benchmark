@@ -116,9 +116,9 @@ def save_ply(data, path: str):
 
     Expected `data` to be a dict-like or object with attributes:
       data['xyz']       -> (N,3) float
-      data['normals']   -> (N,3) float
+      ----- data['normals']   -> (N,3) float
       data['shs']       -> (N,3) float (DC terms)
-      data['sh_rest']   -> (N,45) float (extra SH coeffs)
+      ----- data['sh_rest']   -> (N,45) float (extra SH coeffs)
       data['opacities'] -> (N,1) or (N,) float
       data['scales']    -> (N,3) float
       data['rots']      -> (N,4) float (quaternion)
@@ -146,13 +146,7 @@ def save_ply(data, path: str):
             v = np.full((N,) + (() if shape is None else shape), default)
         return v
 
-    # SH degree used by loader (degree 3 -> 45 extra coeffs per-channel)
-    max_sh_degree = 3
-    num_extra = 3 * (max_sh_degree + 1) ** 2 - 3
-
-    normals = get_field("normals", 0.0, shape=(3,)).reshape(N, -1)
     shs = get_field("shs", 0.5, shape=(3,)).reshape(N, -1)  # DC RGB
-    sh_rest = get_field("sh_rest", 0.0, shape=(num_extra,)).reshape(N, -1)
     opacities = get_field("opacities", 1.0).reshape(N, -1)
     scales = get_field("scales", 1.0, shape=(3,)).reshape(N, -1)
     rots = get_field("rots", 0.0, shape=(4,)).reshape(N, -1)
@@ -165,14 +159,11 @@ def save_ply(data, path: str):
     if parent_present:
         parent_arr = get_field("parent", -1).reshape(-1)
 
-    # Build structured dtype: position, normal, opacity, parent, SH DC, SH rest, scales, rot
+    # Build structured dtype: position, opacity, parent, SH DC, scales, rot
     vertex_dtype = [
         ("x", "f4"),
         ("y", "f4"),
         ("z", "f4"),
-        ("nx", "f4"),
-        ("ny", "f4"),
-        ("nz", "f4"),
         ("opacity", "f4"),
     ]
     # For visualization/debugging purposes we exclude parent
@@ -181,8 +172,6 @@ def save_ply(data, path: str):
 
     # SH DC
     vertex_dtype += [(f"f_dc_{i}", "f4") for i in range(3)]
-    # SH rest (num_extra entries)
-    vertex_dtype += [(f"f_rest_{i}", "f4") for i in range(num_extra)]
 
     # scales (scale_0..)
     for i in range(scales.shape[1]):
@@ -197,9 +186,6 @@ def save_ply(data, path: str):
     vertices["x"] = xyz[:, 0].astype(np.float32)
     vertices["y"] = xyz[:, 1].astype(np.float32)
     vertices["z"] = xyz[:, 2].astype(np.float32)
-    vertices["nx"] = normals[:, 0].astype(np.float32)
-    vertices["ny"] = normals[:, 1].astype(np.float32)
-    vertices["nz"] = normals[:, 2].astype(np.float32)
     vertices["opacity"] = opacities.reshape(-1).astype(np.float32)
     # if parent_present:
     #     vertices["parent"] = parent_arr.astype(np.int32)
@@ -209,15 +195,11 @@ def save_ply(data, path: str):
     vertices["f_dc_1"] = shs[:, 1].astype(np.float32)
     vertices["f_dc_2"] = shs[:, 2].astype(np.float32)
 
-    # SH rest
-    for i in range(num_extra):
-        vertices[f"f_rest_{i}"] = sh_rest[:, i].astype(np.float32)
-
     # scales
     for i in range(scales.shape[1]):
         vertices[f"scale_{i}"] = scales[:, i].astype(np.float32)
 
-    # rotation flattened
+    # rotation
     for i in range(rots.shape[1]):
         vertices[f"rot_{i}"] = rots[:, i].astype(np.float32)
 

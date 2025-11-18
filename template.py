@@ -19,7 +19,7 @@ class AvatarTemplate:
     AvatarTemplate class.
 
     Manages a template of Gaussian primitives attached to each face of a source mesh.
-    The template is initialized from the spmlx_uv mesh (self.mesh_path) with a fixed
+    The template is initialized from the spmlx_uv mesh (self.cano_mesh_path) with a fixed
     number of Gaussians per face. On construction, if a cached avatar file (.ply) exists
     at avatar_path it is loaded; otherwise the template is generated from the mesh and
     saved for future use.
@@ -39,7 +39,7 @@ class AvatarTemplate:
     """
 
     def __init__(self, avatar_path="./models/avatar_template.ply"):
-        self.mesh_path = "models/smplx/smplx_uv.obj"
+        self.cano_mesh_path = "models/smplx/smplx_uv.obj"
         self.avatar_path = avatar_path
         self.k_num_gaussians = 4  # Number of Gaussians per face
         self.avatar = self.load_avatar_template()
@@ -56,11 +56,11 @@ class AvatarTemplate:
             return _avatar
 
     def generate_avatar_template(self):
-        if not os.path.exists(self.mesh_path):
-            raise FileNotFoundError(f"Mesh file not found: {self.mesh_path}")
-        mesh = trimesh.load(self.mesh_path)
+        if not os.path.exists(self.cano_mesh_path):
+            raise FileNotFoundError(f"Mesh file not found: {self.cano_mesh_path}")
+        mesh = trimesh.load(self.cano_mesh_path)
         print(
-            f"Loaded mesh from {self.mesh_path}, with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces.\n"
+            f"Loaded mesh from {self.cano_mesh_path}, with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces.\n"
             f"Generating avatar template..."
         )
         # vertices[0]: [ 0.062714  0.2885   -0.009561]
@@ -69,9 +69,7 @@ class AvatarTemplate:
         faces = mesh.faces
 
         all_xyz = []
-        all_normals = []
         all_shs = []
-        all_sh_rest = []
         all_opacities = []
         all_scales = []
         all_rots = []
@@ -81,14 +79,13 @@ class AvatarTemplate:
             v0 = vertices[face[0]]
             v1 = vertices[face[1]]
             v2 = vertices[face[2]]
+
             # generate gaussians for each face
-            xyzs, normals, shs, sh_rest, opacity, scales, rots = (
-                self.generate_gaussians_for_face(idx, v0, v1, v2)
+            xyzs, shs, opacity, scales, rots = self.generate_gaussians_per_face(
+                v0, v1, v2
             )
             all_xyz.append(xyzs)
-            all_normals.append(normals)
             all_shs.append(shs)
-            all_sh_rest.append(sh_rest)
             all_opacities.append(opacity)
             all_scales.append(scales)
             all_rots.append(rots)
@@ -98,9 +95,7 @@ class AvatarTemplate:
             raise RuntimeError("No gaussians generated from mesh")
 
         all_xyz = np.concatenate(all_xyz, axis=0)
-        all_normals = np.concatenate(all_normals, axis=0)
         all_shs = np.concatenate(all_shs, axis=0)
-        all_sh_rest = np.concatenate(all_sh_rest, axis=0)
         all_opacities = np.concatenate(all_opacities, axis=0).reshape(-1, 1)
         all_scales = np.concatenate(all_scales, axis=0)
         all_rots = np.concatenate(all_rots, axis=0)
@@ -108,9 +103,7 @@ class AvatarTemplate:
 
         data = {
             "xyz": all_xyz,
-            "normals": all_normals,
             "shs": all_shs,
-            "sh_rest": all_sh_rest,
             "opacities": all_opacities,
             "scales": all_scales,
             "rots": all_rots,
@@ -119,7 +112,7 @@ class AvatarTemplate:
 
         return data
 
-    def generate_gaussians_for_face(self, face_id, v0, v1, v2):
+    def generate_gaussians_per_face(self, v0, v1, v2):
         num_gaussians = self.k_num_gaussians
         center = (v0 + v1 + v2) / 3.0
 
@@ -143,26 +136,22 @@ class AvatarTemplate:
         face_area = np.linalg.norm(np.cross(v1 - v0, v2 - v0)) / 2.0
         gaussian_area = face_area / num_gaussians
         r = np.sqrt(gaussian_area / np.pi)
-        std_scale = np.array([r, r, 0.25 * r])  # Example scale with small depth
+        r = np.log(r)  # Modified to log scale
+        std_scale = np.array([r, r, 0.25 * r])  # Initial scale with small depth
 
         # Initialize Gaussians (as numpy arrays)
         xyzs = np.zeros((num_gaussians, 3), dtype=np.float32)
-        normals = np.zeros((num_gaussians, 3), dtype=np.float32)
         shs = np.zeros((num_gaussians, 3), dtype=np.float32)
-        sh_rest = np.zeros((num_gaussians, 45), dtype=np.float32)
         opacity = np.zeros((num_gaussians, 1), dtype=np.float32)
         scales = np.zeros((num_gaussians, 3), dtype=np.float32)
         rots = np.zeros((num_gaussians, 4), dtype=np.float32)
         for i in range(self.k_num_gaussians):
-            pt = B4[i][0] * v0 + B4[i][1] * v1 + B4[i][2] * v2
-            xyzs[i, :] = pt
-            normals[i, :] = [0, 0, 0]
+            xyzs[i, :] = B4[i][0] * v0 + B4[i][1] * v1 + B4[i][2] * v2
             shs[i, :] = 0.5
-            sh_rest[i, :] = 0.0
             opacity[i, 0] = 0.6
             scales[i, :] = std_scale
             rots[i, :] = matrix_to_quaternion(R)
-        return xyzs, normals, shs, sh_rest, opacity, scales, rots
+        return xyzs, shs, opacity, scales, rots
 
 
 if __name__ == "__main__":
