@@ -1,5 +1,9 @@
 # Avatar Benchmark
 
+## 3DGS loading site
+[Link](https://superspl.at/editor)
+
+## Intro
 This repository contains tools to load SMPL avatars, bind textures, generate per-frame pose-driven animations, render image sequences with dataset cameras, and evaluate reconstructed frames against originals. The main functions are:
 - Provide an end-to-end pipeline to render SMPL-based avatars using recorded pose sequences.
 - Produce per-frame timing logs and evaluation helpers (PSNR/SSIM/LPIPS).

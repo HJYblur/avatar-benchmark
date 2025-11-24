@@ -44,11 +44,28 @@ class AvatarTemplate:
         self.k_num_gaussians = 4  # Number of Gaussians per face
         self.avatar = self.load_avatar_template()
 
-    def load_avatar_template(self, regenerate=True):
+    def load_cano_mesh(self):
+        if not os.path.exists(self.cano_mesh_path):
+            raise FileNotFoundError(f"Mesh file not found: {self.cano_mesh_path}")
+        mesh = trimesh.load(self.cano_mesh_path)
+        print(
+            f"Loaded mesh from {self.cano_mesh_path}, with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces."
+        )
+        return mesh
+
+    def load_avatar_template(self, mode="test", regenerate=False):
         if os.path.exists(self.avatar_path) and not regenerate:
-            gau_data = load_ply(self.avatar_path)
-            print("Loaded avatar template from:", self.avatar_path)
-            return gau_data
+            if mode == "test":
+                # In test mode, we reload the xyz from face based local coords to world coords
+                print("Reloading avatar template in test mode for visualization...")
+                cano_mesh = self.load_cano_mesh()
+                _avatar = load_ply(self.avatar_path, mode="test", cano_mesh=cano_mesh)
+                test_path = self.avatar_path.replace(".ply", "_test.ply")
+                save_ply(_avatar, test_path)
+            else:
+                print(f"Loaded avatar template from: {self.avatar_path}")
+                _avatar = load_ply(self.avatar_path, mode="default")
+            return _avatar
         else:
             _avatar = self.generate_avatar_template()
             save_ply(_avatar, self.avatar_path)
@@ -56,13 +73,8 @@ class AvatarTemplate:
             return _avatar
 
     def generate_avatar_template(self):
-        if not os.path.exists(self.cano_mesh_path):
-            raise FileNotFoundError(f"Mesh file not found: {self.cano_mesh_path}")
-        mesh = trimesh.load(self.cano_mesh_path)
-        print(
-            f"Loaded mesh from {self.cano_mesh_path}, with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces.\n"
-            f"Generating avatar template..."
-        )
+        mesh = self.load_cano_mesh()
+        print(f"Generating avatar template...")
         # vertices[0]: [ 0.062714  0.2885   -0.009561]
         # face[0]: [3 1 0]
         vertices = mesh.vertices
@@ -137,7 +149,7 @@ class AvatarTemplate:
         gaussian_area = face_area / num_gaussians
         r = np.sqrt(gaussian_area / np.pi)
         r = np.log(r)  # Modified to log scale
-        std_scale = np.array([r, r, 0.25 * r])  # Initial scale with small depth
+        std_scale = np.array([r, r, r])  # Initial scale with small depth
 
         # Initialize Gaussians (as numpy arrays)
         xyzs = np.zeros((num_gaussians, 3), dtype=np.float32)
@@ -146,7 +158,8 @@ class AvatarTemplate:
         scales = np.zeros((num_gaussians, 3), dtype=np.float32)
         rots = np.zeros((num_gaussians, 4), dtype=np.float32)
         for i in range(self.k_num_gaussians):
-            xyzs[i, :] = B4[i][0] * v0 + B4[i][1] * v1 + B4[i][2] * v2
+            # Store the relative position to the face center
+            xyzs[i, :] = B4[i][0] * v0 + B4[i][1] * v1 + B4[i][2] * v2 - center
             shs[i, :] = 0.5
             opacity[i, 0] = 0.6
             scales[i, :] = std_scale

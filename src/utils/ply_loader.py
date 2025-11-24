@@ -42,71 +42,112 @@ def matrix_to_quaternion(matrix):
     return np.array([w, x, y, z], dtype=np.float32)
 
 
-def load_ply(path):
-    max_sh_degree = 3
+def load_cano_mesh_face_center(self):
+    if not os.path.exists(self.cano_mesh_path):
+        raise FileNotFoundError(f"Mesh file not found: {self.cano_mesh_path}")
+    mesh = trimesh.load(self.cano_mesh_path)
+    vertices, faces = mesh.vertices, mesh.faces
+
+    face_center = np.zeros((len(faces), 3), dtype=np.float32)
+    for idx, face in enumerate(faces):
+        v0 = vertices[face[0]]
+        v1 = vertices[face[1]]
+        v2 = vertices[face[2]]
+        center = (v0 + v1 + v2) / 3.0
+        face_center[idx, :] = center
+    return face_center
+
+
+def load_ply(path, mode="default", cano_mesh=None) -> GaussianData:
+    """Load Gaussian template PLY saved by save_ply.
+
+    This loader is tolerant: it reads whatever fields are present (DC SH, optional
+    extra SH coefficients, scale_*, rot_*, optional parent) and returns a
+    GaussianData object. Coordinates are negated back to the original sign
+    because save_ply stores x,y,z with flipped signs.
+    """
     plydata = PlyData.read(path)
+    elem = plydata.elements[0]
+    names = elem.data.dtype.names
+
+    # Positions:
+    # If in "test" mode, we reload the xyz from face based local coords to world coords and negate it for visualization
+    if mode == "test":
+        if cano_mesh is None:
+            raise ValueError("cano_mesh must be provided in test mode to reload xyz.")
+        # Here we would implement the logic to convert local coords to world coords
+        vertices, faces = cano_mesh.vertices, cano_mesh.faces
+
+        face_center = np.zeros((len(faces), 3), dtype=np.float32)
+        for idx, face in enumerate(faces):
+            v0 = vertices[face[0]]
+            v1 = vertices[face[1]]
+            v2 = vertices[face[2]]
+            center = (v0 + v1 + v2) / 3.0
+            face_center[idx, :] = center
+
+        for idx in range(len(elem.data)):
+            parent_face_idx = elem.data["parent"][idx]
+            cur_face_center = face_center[parent_face_idx]
+            elem.data["x"][idx] = -(elem.data["x"][idx] + cur_face_center[0])
+            elem.data["y"][idx] = -(elem.data["y"][idx] + cur_face_center[1])
+            elem.data["z"][idx] = -(elem.data["z"][idx] + cur_face_center[2])
+
+    # Else in "default" mode, just load it. We need it in local coords for further processing
     xyz = np.stack(
-        (
-            np.asarray(plydata.elements[0]["x"]),
-            np.asarray(plydata.elements[0]["y"]),
-            np.asarray(plydata.elements[0]["z"]),
-        ),
+        (np.asarray(elem["x"]), np.asarray(elem["y"]), np.asarray(elem["z"])),
         axis=1,
-    )
-    opacities = np.asarray(plydata.elements[0]["opacity"])[..., np.newaxis]
-
-    features_dc = np.zeros((xyz.shape[0], 3, 1))
-    features_dc[:, 0, 0] = np.asarray(plydata.elements[0]["f_dc_0"])
-    features_dc[:, 1, 0] = np.asarray(plydata.elements[0]["f_dc_1"])
-    features_dc[:, 2, 0] = np.asarray(plydata.elements[0]["f_dc_2"])
-
-    extra_f_names = [
-        p.name for p in plydata.elements[0].properties if p.name.startswith("f_rest_")
-    ]
-    extra_f_names = sorted(extra_f_names, key=lambda x: int(x.split("_")[-1]))
-    assert len(extra_f_names) == 3 * (max_sh_degree + 1) ** 2 - 3
-    features_extra = np.zeros((xyz.shape[0], len(extra_f_names)))
-    for idx, attr_name in enumerate(extra_f_names):
-        features_extra[:, idx] = np.asarray(plydata.elements[0][attr_name])
-    # Reshape (P,F*SH_coeffs) to (P, F, SH_coeffs except DC)
-    features_extra = features_extra.reshape(
-        (features_extra.shape[0], 3, (max_sh_degree + 1) ** 2 - 1)
-    )
-    features_extra = np.transpose(features_extra, [0, 2, 1])
-
-    scale_names = [
-        p.name for p in plydata.elements[0].properties if p.name.startswith("scale_")
-    ]
-    scale_names = sorted(scale_names, key=lambda x: int(x.split("_")[-1]))
-    scales = np.zeros((xyz.shape[0], len(scale_names)))
-    for idx, attr_name in enumerate(scale_names):
-        scales[:, idx] = np.asarray(plydata.elements[0][attr_name])
-
-    rot_names = [
-        p.name for p in plydata.elements[0].properties if p.name.startswith("rot")
-    ]
-    rot_names = sorted(rot_names, key=lambda x: int(x.split("_")[-1]))
-    rots = np.zeros((xyz.shape[0], len(rot_names)))
-    for idx, attr_name in enumerate(rot_names):
-        rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
-
-    # pass activate function
-    xyz = xyz.astype(np.float32)
-    rots = rots / np.linalg.norm(rots, axis=-1, keepdims=True)
-    rots = rots.astype(np.float32)
-    scales = np.exp(scales)
-    scales = scales.astype(np.float32)
-    opacities = 1 / (1 + np.exp(-opacities))  # sigmoid
-    opacities = opacities.astype(np.float32)
-    shs = np.concatenate(
-        [features_dc.reshape(-1, 3), features_extra.reshape(len(features_dc), -1)],
-        axis=-1,
     ).astype(np.float32)
-    shs = shs.astype(np.float32)
-    # read parent if present
+
+    # Opacity stored directly (0..1), keep as column vector
+    opacities = np.asarray(elem["opacity"])[..., np.newaxis].astype(np.float32)
+
+    # SH DC (f_dc_0..2) if present, otherwise zeros
+    dc = np.zeros((xyz.shape[0], 3), dtype=np.float32)
+    for i in range(3):
+        key = f"f_dc_{i}"
+        if key in names:
+            dc[:, i] = np.asarray(elem[key]).astype(np.float32)
+
+    # Optional extra SH coefficients (f_rest_*) – read if present and keep order
+    extra_f_names = [n for n in names if n.startswith("f_rest_")]
+    extra_f_names = sorted(extra_f_names, key=lambda x: int(x.split("_")[-1]))
+    if len(extra_f_names) > 0:
+        extra = np.zeros((xyz.shape[0], len(extra_f_names)), dtype=np.float32)
+        for idx, k in enumerate(extra_f_names):
+            extra[:, idx] = np.asarray(elem[k]).astype(np.float32)
+        shs = np.concatenate([dc, extra], axis=1)
+    else:
+        shs = dc
+
+    # scales (scale_0.. ) if present; default to ones
+    scale_names = [n for n in names if n.startswith("scale_")]
+    scale_names = sorted(scale_names, key=lambda x: int(x.split("_")[-1]))
+    if len(scale_names) > 0:
+        scales = np.zeros((xyz.shape[0], len(scale_names)), dtype=np.float32)
+        for idx, k in enumerate(scale_names):
+            scales[:, idx] = np.asarray(elem[k]).astype(np.float32)
+    else:
+        scales = np.ones((xyz.shape[0], 3), dtype=np.float32)
+
+    # rotations (rot_0..rot_M) if present
+    rot_names = [n for n in names if n.startswith("rot_")]
+    rot_names = sorted(rot_names, key=lambda x: int(x.split("_")[-1]))
+    if len(rot_names) > 0:
+        rots = np.zeros((xyz.shape[0], len(rot_names)), dtype=np.float32)
+        for idx, k in enumerate(rot_names):
+            rots[:, idx] = np.asarray(elem[k]).astype(np.float32)
+        # normalize
+        nrm = np.linalg.norm(rots, axis=-1, keepdims=True)
+        nrm[nrm == 0] = 1.0
+        rots = (rots / nrm).astype(np.float32)
+    else:
+        rots = np.zeros((xyz.shape[0], 4), dtype=np.float32)
+
+    # optional parent
     parent = None
-    if "parent" in plydata.elements[0].data.dtype.names:
-        parent = np.asarray(plydata.elements[0]["parent"]).astype(np.int32)
+    if "parent" in names:
+        parent = np.asarray(elem["parent"]).astype(np.int32)
 
     return GaussianData(xyz, rots, scales, opacities, shs, parent)
 
@@ -167,8 +208,8 @@ def save_ply(data, path: str):
         ("opacity", "f4"),
     ]
     # For visualization/debugging purposes we exclude parent
-    # if parent_present:
-    #     vertex_dtype.append(("parent", "i4"))
+    if parent_present:
+        vertex_dtype.append(("parent", "i4"))
 
     # SH DC
     vertex_dtype += [(f"f_dc_{i}", "f4") for i in range(3)]
@@ -187,8 +228,9 @@ def save_ply(data, path: str):
     vertices["y"] = xyz[:, 1].astype(np.float32)
     vertices["z"] = xyz[:, 2].astype(np.float32)
     vertices["opacity"] = opacities.reshape(-1).astype(np.float32)
-    # if parent_present:
-    #     vertices["parent"] = parent_arr.astype(np.int32)
+    if parent_present:
+        vertices["parent"] = parent_arr.astype(np.int32)
+        # print("Get parent info")
 
     # SH DC
     vertices["f_dc_0"] = shs[:, 0].astype(np.float32)
