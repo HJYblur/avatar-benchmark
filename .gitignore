@@ -214,8 +214,10 @@ data/*
 log/*
 output/*
 
-# Ignore SMPL model files
+models/smpl/
 models/smplx/
+
+
 
 # macOS specific files
 *.DS_Store
