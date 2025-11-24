@@ -16,6 +16,10 @@ lpips>=0.1.4
 torch>=1.10.0
 torchvision>=0.11.0
 
+# Extras used in this repository
+florch
+simplepyutils
+
 # 3D and mesh processing
 trimesh>=3.9.0
 pyrender>=0.1.45
@@ -23,3 +27,6 @@ smplx>=0.1.28
 chumpy>=0.70
 scikit-image>=0.18.0
 plyfile>=0.7.2
+
+# Optional / environment-specific
+# pytorch3d  # install separately for CUDA/OS compatibility if needed
