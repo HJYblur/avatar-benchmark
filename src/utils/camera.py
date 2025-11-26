@@ -1,3 +1,5 @@
+import os
+import trimesh
 import torch
 from typing import List, Optional
 
@@ -33,3 +35,13 @@ def intrinsic_matrix_from_field_of_view(
         .unflatten(-1, (3, 3))
         .unsqueeze(0)
     )
+
+
+def load_cano_mesh(cano_mesh_path: str) -> trimesh.Trimesh:
+    if not os.path.exists(cano_mesh_path):
+        raise FileNotFoundError(f"Mesh file not found: {cano_mesh_path}")
+    mesh = trimesh.load(cano_mesh_path, process=False, maintain_order=True)
+    print(
+        f"Loaded mesh from {cano_mesh_path}, with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces."
+    )
+    return mesh

@@ -47,7 +47,7 @@ class AvatarTemplate:
     def load_cano_mesh(self):
         if not os.path.exists(self.cano_mesh_path):
             raise FileNotFoundError(f"Mesh file not found: {self.cano_mesh_path}")
-        mesh = trimesh.load(self.cano_mesh_path)
+        mesh = trimesh.load(self.cano_mesh_path, process=False, maintain_order=True)
         print(
             f"Loaded mesh from {self.cano_mesh_path}, with {len(mesh.vertices)} vertices and {len(mesh.faces)} faces."
         )
@@ -71,6 +71,18 @@ class AvatarTemplate:
             save_ply(_avatar, self.avatar_path)
             print("Generated and saved avatar template to:", self.avatar_path)
             return _avatar
+
+    def load_animated_avatar(self, mesh_path=self.cano_mesh_path):
+        if not os.path.exists(mesh_path):
+            raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
+        animated_mesh = trimesh.load(mesh_path)
+        print(
+            f"Loaded animated mesh from {mesh_path}, with {len(animated_mesh.vertices)} vertices and {len(animated_mesh.faces)} faces."
+        )
+        _avatar = load_ply(self.avatar_path, mode="test", cano_mesh=animated_mesh)
+        test_path = self.avatar_path.replace(".ply", "_test.ply")
+        save_ply(_avatar, test_path)
+        return _avatar
 
     def generate_avatar_template(self):
         mesh = self.load_cano_mesh()
