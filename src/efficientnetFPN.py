@@ -72,18 +72,24 @@ class EfficientNetV2FPN(nn.Module):
         p32 = proj_features["stride_32"]
 
         # Stride 16 = Projected Stride 16 + Upsampled P32
+        # Use explicit target size (from the lateral feature) instead of a fixed
+        # scale_factor to avoid off-by-one mismatches when input spatial sizes
+        # are not divisible by powers of two (odd dimensions).
+        target_size_p16 = proj_features["stride_16"].shape[-2:]
         p16 = proj_features["stride_16"] + F.interpolate(
-            p32, scale_factor=2, mode="nearest"
+            p32, size=target_size_p16, mode="nearest"
         )
 
         # Stride 8 = Projected Stride 8 + Upsampled P16
+        target_size_p8 = proj_features["stride_8"].shape[-2:]
         p8 = proj_features["stride_8"] + F.interpolate(
-            p16, scale_factor=2, mode="nearest"
+            p16, size=target_size_p8, mode="nearest"
         )
 
         # Stride 4 = Projected Stride 4 + Upsampled P8
+        target_size_p4 = proj_features["stride_4"].shape[-2:]
         p4 = proj_features["stride_4"] + F.interpolate(
-            p8, scale_factor=2, mode="nearest"
+            p8, size=target_size_p4, mode="nearest"
         )
 
         # 4. Apply Smoothing (FPN Standard Practice)
