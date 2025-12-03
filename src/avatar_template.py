@@ -1,7 +1,9 @@
 import os
 import trimesh
 import numpy as np
-from utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
+
+# Use a package-relative import so this works when importing as `src.avatar_template`
+from .utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
 
 
 class GaussianData:
@@ -42,7 +44,7 @@ class AvatarTemplate:
         self.cano_mesh_path = "models/smplx/smplx_uv.obj"
         self.avatar_path = avatar_path
         self.k_num_gaussians = 4  # Number of Gaussians per face
-        self.avatar = self.load_avatar_template()
+        # self.avatar = self.load_avatar_template()
 
     def load_cano_mesh(self):
         if not os.path.exists(self.cano_mesh_path):
@@ -53,7 +55,7 @@ class AvatarTemplate:
         )
         return mesh
 
-    def load_avatar_template(self, mode="test", regenerate=False):
+    def load_avatar_template(self, mode="default", regenerate=False):
         if os.path.exists(self.avatar_path) and not regenerate:
             if mode == "test":
                 # In test mode, we reload the xyz from face based local coords to world coords
@@ -72,7 +74,10 @@ class AvatarTemplate:
             print("Generated and saved avatar template to:", self.avatar_path)
             return _avatar
 
-    def load_animated_avatar(self, mesh_path=self.cano_mesh_path):
+    def load_animated_avatar(self, mesh_path=None):
+        # Default to the canonical mesh path if not provided
+        if mesh_path is None:
+            mesh_path = self.cano_mesh_path
         if not os.path.exists(mesh_path):
             raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
         animated_mesh = trimesh.load(mesh_path)
@@ -179,6 +184,6 @@ class AvatarTemplate:
         return xyzs, shs, opacity, scales, rots
 
 
-if __name__ == "__main__":
-    avatar_template = AvatarTemplate()
-    print("Avatar template generated and saved.")
+# if __name__ == "__main__":
+#     avatar_template = AvatarTemplate()
+#     print("Avatar template generated and saved.")
