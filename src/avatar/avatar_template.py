@@ -2,8 +2,8 @@ import os
 import trimesh
 import numpy as np
 
-# Use a package-relative import so this works when importing as `src.avatar_template`
-from .utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
+# Import from the shared utils under the src root
+from utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
 
 
 class GaussianData:

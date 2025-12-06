@@ -1,0 +1,12 @@
+data:
+  root: data/people_snapshot_public
+  image_glob: "**/*.jpg"
+  fov_degrees: 55.0
+  proc_side: 256
+  template_path: models/avatar_template.ply
+
+train:
+  batch_size: 2
+  num_workers: 2
+  epochs: 1
+
