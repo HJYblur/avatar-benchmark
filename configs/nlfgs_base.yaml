@@ -10,3 +10,10 @@ train:
   num_workers: 2
   epochs: 1
 
+avatar:
+  template:
+    mode: default       # options: default | test
+    regenerate: false   # set true to force re-generate and overwrite
+    path: models/avatar_template.ply
+    cano_mesh_path: models/smplx/smplx_uv.obj
+    k_num_gaussians: 4

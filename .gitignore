@@ -217,7 +217,7 @@ output/*
 models/smpl/
 models/smplx/
 
-
+tmp/
 
 # macOS specific files
 *.DS_Store

@@ -8,30 +8,10 @@ from torch.utils.data import DataLoader
 # Make 'src' importable when running as a script
 sys.path.append(str(Path(__file__).parent / "src"))
 
-from data.datasets import AvatarDataset  # noqa: E402
-from models.nlf_backbone_adapter import NLFBackboneAdapter  # noqa: E402
-from training.trainer import Trainer  # noqa: E402
-
-
-def load_config(path: Path):
-    # Optional dependency on PyYAML; if unavailable, use defaults
-    try:
-        import yaml
-
-        with open(path, "r") as f:
-            return yaml.safe_load(f)
-    except Exception:
-        # Basic default fallback
-        return {
-            "data": {
-                "root": "data/people_snapshot_public",
-                "image_glob": "**/*.jpg",
-                "fov_degrees": 55.0,
-                "proc_side": 256,
-                "template_path": "models/avatar_template.ply",
-            },
-            "train": {"batch_size": 2, "num_workers": 2, "epochs": 1},
-        }
+from data.datasets import AvatarDataset
+from models.nlf_backbone_adapter import NLFBackboneAdapter
+from training.trainer import Trainer
+from utils.config import load_config
 
 
 def forward_step(
@@ -57,10 +37,15 @@ def forward_step(
 def main():
     parser = argparse.ArgumentParser(description="NLF-GS Training Scaffold")
     parser.add_argument("--config", type=str, default="configs/nlfgs_base.yaml")
-    parser.add_argument("--nlf_model_module", type=str, default="", help="Python import path to a module that exposes 'nlf_model' with crop_model.backbone. If empty, training will not run.")
+    parser.add_argument(
+        "--nlf_model_module",
+        type=str,
+        default="",
+        help="Python import path to a module that exposes 'nlf_model' with crop_model.backbone. If empty, training will not run.",
+    )
     args = parser.parse_args()
 
-    cfg = load_config(Path(args.config))
+    cfg = load_config(args.config)
 
     # Build dataset and dataloader
     ds = AvatarDataset(
@@ -70,10 +55,17 @@ def main():
         proc_side=cfg["data"]["proc_side"],
         template_path=cfg["data"]["template_path"],
     )
-    dl = DataLoader(ds, batch_size=cfg["train"]["batch_size"], num_workers=cfg["train"]["num_workers"], shuffle=True)
+    dl = DataLoader(
+        ds,
+        batch_size=cfg["train"]["batch_size"],
+        num_workers=cfg["train"]["num_workers"],
+        shuffle=True,
+    )
 
     if not args.nlf_model_module:
-        print("Scaffold ready. Provide --nlf_model_module to run (must expose 'nlf_model').")
+        print(
+            "Scaffold ready. Provide --nlf_model_module to run (must expose 'nlf_model')."
+        )
         return
 
     # Dynamically import nlf model handle without touching nlf/ package here

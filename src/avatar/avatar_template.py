@@ -4,6 +4,7 @@ import numpy as np
 
 # Import from the shared utils under the src root
 from utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
+from utils.config import get as get_cfg
 
 
 class GaussianData:
@@ -40,10 +41,17 @@ class AvatarTemplate:
     - Generation is intended to be done once; subsequent uses load the cached file.
     """
 
-    def __init__(self, avatar_path="./models/avatar_template.ply"):
-        self.cano_mesh_path = "models/smplx/smplx_uv.obj"
-        self.avatar_path = avatar_path
-        self.k_num_gaussians = 4  # Number of Gaussians per face
+    def __init__(self, avatar_path=None, cano_mesh_path=None, k_num_gaussians=None):
+        # Read defaults from config if not provided
+        self.cano_mesh_path = (
+            cano_mesh_path if cano_mesh_path is not None else get_cfg("avatar.template.cano_mesh_path", "models/smplx/smplx_uv.obj")
+        )
+        self.avatar_path = (
+            avatar_path if avatar_path is not None else get_cfg("avatar.template.path", "./models/avatar_template.ply")
+        )
+        self.k_num_gaussians = int(
+            k_num_gaussians if k_num_gaussians is not None else get_cfg("avatar.template.k_num_gaussians", 4)
+        )
         # self.avatar = self.load_avatar_template()
 
     def load_cano_mesh(self):
@@ -55,7 +63,18 @@ class AvatarTemplate:
         )
         return mesh
 
-    def load_avatar_template(self, mode="default", regenerate=False):
+    def load_avatar_template(self, mode=None, regenerate=None):
+        """
+        Load or generate the avatar template.
+
+        If mode or regenerate are None, they are read from config keys:
+          avatar.template.mode (default: "default")
+          avatar.template.regenerate (default: False)
+        """
+        if mode is None:
+            mode = get_cfg("avatar.template.mode", "default")
+        if regenerate is None:
+            regenerate = bool(get_cfg("avatar.template.regenerate", False))
         if os.path.exists(self.avatar_path) and not regenerate:
             if mode == "test":
                 # In test mode, we reload the xyz from face based local coords to world coords
