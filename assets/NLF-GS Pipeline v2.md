@@ -25,9 +25,8 @@ F_{img} = Encoder(I), \quad F_{img} \in \mathbb{R}^{h \times w \times C}
 $$
 
 
+
 #### 3. Neural Localizer Field (Pose & Correspondence)
-
-
 
 We treat the canonical coordinate $\mathbf{x}_{can}$ of a Gaussian $g$ as a query point to the NLF. The NLF acts as a Hypernetwork that generates a dynamic filter to find this point in the observation (image) space.
 
@@ -51,9 +50,8 @@ $$
 $$
 
 
+
 #### 4. Gaussian Estimator (Shape & Appearance)
-
-
 
 We sample the image features at the predicted 2D location to obtain a local descriptor for the Gaussian:
 $$
@@ -65,4 +63,4 @@ $$
 \alpha, \mathbf{c}_{SH} := MLP_{appearance}(f_g)
 $$
 
-
+Why use two MLP? Shape estimator gives smooth and stable output, and appearance output are highly dynamic and unstable. Using two estimators can avoid the possibly noisy SH outputs affect shape output.
