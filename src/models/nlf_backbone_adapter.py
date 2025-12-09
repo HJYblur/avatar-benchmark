@@ -58,4 +58,4 @@ class NLFBackboneAdapter:
         preds = self.nlf_model.detect_smpl_batched(
             images=frame_batch, model_name=model_name, **kwargs
         )
-        return {"feature_map": feature_map, "preds": preds}
+        return feature_map, preds
