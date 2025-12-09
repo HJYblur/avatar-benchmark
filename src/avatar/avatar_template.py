@@ -80,6 +80,7 @@ class AvatarTemplate:
           1. "default": load the saved template as is.
           2. "generate": regenerate the template from the canonical mesh even if a saved file exists.
           3. "test": load the saved template but convert local coords to world coords for visualization.
+          4. "anim": load the saved template but convert local coords to world coords for animated mesh visualization.
 
         Returns:
         _avatar: dict with keys 'xyz', 'shs', 'opacities', 'scales', 'rots', 'parents'
@@ -105,7 +106,7 @@ class AvatarTemplate:
             save_ply(_avatar, self.avatar_path)
             print("Generated and saved avatar template to:", self.avatar_path)
             return _avatar
-        else:  # mode == "test"
+        elif mode == "test":
             # In test mode, we reload the xyz from face based local coords to world coords for visualization
             print("Reloading avatar template in test mode for visualization...")
             cano_mesh = self.load_cano_mesh()
@@ -114,21 +115,24 @@ class AvatarTemplate:
             save_ply(_avatar, test_path)
             print("Saved test avatar template to:", test_path)
             return _avatar
-
-    def load_animated_avatar(self, mesh_path=None):
-        # Default to the canonical mesh path if not provided
-        if mesh_path is None:
-            mesh_path = self.cano_mesh_path
-        if not os.path.exists(mesh_path):
-            raise FileNotFoundError(f"Mesh file not found: {mesh_path}")
-        animated_mesh = trimesh.load(mesh_path)
-        print(
-            f"Loaded animated mesh from {mesh_path}, with {len(animated_mesh.vertices)} vertices and {len(animated_mesh.faces)} faces."
-        )
-        _avatar = load_ply(self.avatar_path, mode="test", cano_mesh=animated_mesh)
-        test_path = self.avatar_path.replace(".ply", "_anim.ply")
-        save_ply(_avatar, test_path)
-        return _avatar
+        elif mode == "anim":
+            # In anim mode, we reload the xyz from face based local coords to world coords for animated mesh visualization
+            print(
+                "Reloading avatar template in anim mode for animated mesh visualization..."
+            )
+            mesh_path = get_cfg(
+                "avatar.template.anim_mesh_path", "tmp/output_smplx_mesh.ply"
+            )
+            assert os.path.exists(
+                mesh_path
+            ), f"Animated mesh file not found: {mesh_path}"
+            animated_mesh = trimesh.load(mesh_path)
+            _avatar = load_ply(self.avatar_path, mode="test", cano_mesh=animated_mesh)
+            test_path = self.avatar_path.replace(".ply", "_anim.ply")
+            save_ply(_avatar, test_path)
+            return _avatar
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
     def generate_avatar_template(self):
         mesh = self.load_cano_mesh()
@@ -258,8 +262,5 @@ class AvatarTemplate:
 #     print("Avatar template generated and saved.")
 #     avatar_test = avatar_template.load_avatar_template(mode="test")
 #     print("Avatar template test file generated.")
-
-#     animation_mesh_path = "/Users/lemon/Documents/TUD/Thesis/Code/avatar-benchmark/tmp/output_smplx_mesh.ply"
-#     animated_avatar = avatar_template.load_animated_avatar(
-#         mesh_path=animation_mesh_path
-#     )
+#     avatar_anim = avatar_template.load_avatar_template(mode="anim")
+#     print("Avatar template anim file generated.")

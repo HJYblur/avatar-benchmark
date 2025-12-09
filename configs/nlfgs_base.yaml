@@ -18,6 +18,7 @@ avatar:
     mode: default       # options: default | generate | test
     path: models/avatar_template.ply
     cano_mesh_path: models/smplx/smplx_uv.obj
+    anim_mesh_path: tmp/output_smplx_mesh.ply
     k_num_gaussians: 4
     barycentric_coords:
       - [0.6, 0.2, 0.2]
