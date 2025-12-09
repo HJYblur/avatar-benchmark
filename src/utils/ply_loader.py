@@ -1,5 +1,7 @@
 import numpy as np
+import torch
 import os
+import trimesh
 from collections import namedtuple
 from plyfile import PlyData, PlyElement
 
@@ -58,7 +60,7 @@ def load_cano_mesh_face_center(self):
     return face_center
 
 
-def load_ply(path, mode="default", cano_mesh=None) -> GaussianData:
+def load_ply(path, mode="default", cano_mesh=None, return_torch: bool = True):
     """Load Gaussian template PLY saved by save_ply.
 
     This loader is tolerant: it reads whatever fields are present (DC SH, optional
@@ -71,27 +73,26 @@ def load_ply(path, mode="default", cano_mesh=None) -> GaussianData:
     names = elem.data.dtype.names
 
     # Positions:
-    # If in "test" mode, we reload the xyz from face based local coords to world coords and negate it for visualization
+    # In "test" mode, reload xyz from face-based local coords to world coords for visualization.
+    # We require that the PLY contains explicit parent triplets: parent_0,parent_1,parent_2.
     if mode == "test":
         if cano_mesh is None:
             raise ValueError("cano_mesh must be provided in test mode to reload xyz.")
-        # Here we would implement the logic to convert local coords to world coords
-        vertices, faces = cano_mesh.vertices, cano_mesh.faces
-
-        face_center = np.zeros((len(faces), 3), dtype=np.float32)
-        for idx, face in enumerate(faces):
-            v0 = vertices[face[0]]
-            v1 = vertices[face[1]]
-            v2 = vertices[face[2]]
-            center = (v0 + v1 + v2) / 3.0
-            face_center[idx, :] = center
-
+        # Convert stored local offsets back to world coords per-gaussian using its 3 parent vertices
+        vertices = cano_mesh.vertices
+        names = elem.data.dtype.names
+        if not all(k in names for k in ("parent_0", "parent_1", "parent_2")):
+            raise ValueError(
+                "PLY must contain parent_0,parent_1,parent_2 fields to reconstruct world coords."
+            )
         for idx in range(len(elem.data)):
-            parent_face_idx = elem.data["parent"][idx]
-            cur_face_center = face_center[parent_face_idx]
-            elem.data["x"][idx] = -(elem.data["x"][idx] + cur_face_center[0])
-            elem.data["y"][idx] = -(elem.data["y"][idx] + cur_face_center[1])
-            elem.data["z"][idx] = -(elem.data["z"][idx] + cur_face_center[2])
+            i0 = int(elem.data["parent_0"][idx])
+            i1 = int(elem.data["parent_1"][idx])
+            i2 = int(elem.data["parent_2"][idx])
+            center = (vertices[i0] + vertices[i1] + vertices[i2]) / 3.0
+            elem.data["x"][idx] = elem.data["x"][idx] + center[0]
+            elem.data["y"][idx] = elem.data["y"][idx] + center[1]
+            elem.data["z"][idx] = elem.data["z"][idx] + center[2]
 
     # Else in "default" mode, just load it. We need it in local coords for further processing
     xyz = np.stack(
@@ -144,12 +145,37 @@ def load_ply(path, mode="default", cano_mesh=None) -> GaussianData:
     else:
         rots = np.zeros((xyz.shape[0], 4), dtype=np.float32)
 
-    # optional parent
-    parent = None
-    if "parent" in names:
-        parent = np.asarray(elem["parent"]).astype(np.int32)
+    # parent indices: require triplet (parent_0, parent_1, parent_2)
+    if not all(n in names for n in ("parent_0", "parent_1", "parent_2")):
+        raise ValueError("PLY missing required parent_0,parent_1,parent_2 fields")
+    parent = np.stack(
+        [
+            np.asarray(elem["parent_0"]).astype(np.int32),
+            np.asarray(elem["parent_1"]).astype(np.int32),
+            np.asarray(elem["parent_2"]).astype(np.int32),
+        ],
+        axis=1,
+    )
 
-    return GaussianData(xyz, rots, scales, opacities, shs, parent)
+    # Build result as GaussianData namedtuple for attribute access (xyz, rots, scales, opacities, shs, parent)
+    if return_torch:
+        return {
+            "xyz": torch.from_numpy(xyz).to(torch.float32),
+            "shs": torch.from_numpy(shs).to(torch.float32),
+            "opacities": torch.from_numpy(opacities).to(torch.float32),
+            "scales": torch.from_numpy(scales).to(torch.float32),
+            "rots": torch.from_numpy(rots).to(torch.float32),
+            "parent": torch.from_numpy(parent).to(torch.int32),
+        }
+
+    return {
+        "xyz": xyz,
+        "shs": shs,
+        "opacities": opacities,
+        "scales": scales,
+        "rots": rots,
+        "parent": parent,
+    }
 
 
 def save_ply(data, path: str):
@@ -163,16 +189,22 @@ def save_ply(data, path: str):
       data['opacities'] -> (N,1) or (N,) float
       data['scales']    -> (N,3) float
       data['rots']      -> (N,4) float (quaternion)
-      data['parent']    -> (N,) int
+      data['parent']    -> (N,3) int (vertex indices per gaussian)
 
     The saved PLY will include placeholder SH coefficients (f_rest_0..f_rest_44) set to zero
     so that loaders expecting a fixed number of SH extras can read the file.
     """
-    # Normalize accessors
+
+    # Normalize accessors (accept numpy arrays or torch tensors)
+    def to_numpy(v):
+        if isinstance(v, torch.Tensor):
+            return v.detach().cpu().numpy()
+        return np.asarray(v)
+
     if hasattr(data, "xyz"):
-        xyz = np.asarray(data.xyz)
+        xyz = to_numpy(getattr(data, "xyz"))
     elif isinstance(data, dict):
-        xyz = np.asarray(data["xyz"])
+        xyz = to_numpy(data["xyz"])
     else:
         raise ValueError("Unsupported data type for save_ply")
 
@@ -180,57 +212,61 @@ def save_ply(data, path: str):
 
     def get_field(name, default, shape=None):
         if hasattr(data, name):
-            v = np.asarray(getattr(data, name))
+            v = to_numpy(getattr(data, name))
         elif isinstance(data, dict) and name in data:
-            v = np.asarray(data[name])
+            v = to_numpy(data[name])
         else:
-            v = np.full((N,) + (() if shape is None else shape), default)
+            v = np.full(
+                (N,) + (() if shape is None else shape), default, dtype=np.float32
+            )
         return v
 
     shs = get_field("shs", 0.5, shape=(3,)).reshape(N, -1)  # DC RGB
     opacities = get_field("opacities", 1.0).reshape(N, -1)
     scales = get_field("scales", 1.0, shape=(3,)).reshape(N, -1)
     rots = get_field("rots", 0.0, shape=(4,)).reshape(N, -1)
+    # parent is required and must be an (N,3) array of vertex indices per-gaussian
+    if hasattr(data, "parent"):
+        parents = to_numpy(getattr(data, "parent"))
+    elif isinstance(data, dict) and "parent" in data:
+        parents = to_numpy(data["parent"])
+    else:
+        raise ValueError(
+            "save_ply requires a 'parent' field with shape (N,3) containing vertex indices"
+        )
 
-    # Parent is optional: include only if provided by the data
-    parent_present = hasattr(data, "parent") or (
-        isinstance(data, dict) and "parent" in data
-    )
-    parent_arr = None
-    if parent_present:
-        parent_arr = get_field("parent", -1).reshape(-1)
+    # Validate parents are (N,P) and build final structured dtype including parent fields
+    parents = np.asarray(parents)
+    if parents.ndim != 2:
+        raise ValueError(
+            "'parent' must be a 2D array of shape (N,P) with vertex indices"
+        )
+    parent_count = int(parents.shape[1])
 
-    # Build structured dtype: position, opacity, parent, SH DC, scales, rot
+    # Build structured dtype: position, opacity, SH DC, scales, rot, parent_{i}
     vertex_dtype = [
         ("x", "f4"),
         ("y", "f4"),
         ("z", "f4"),
         ("opacity", "f4"),
     ]
-    # For visualization/debugging purposes we exclude parent
-    if parent_present:
-        vertex_dtype.append(("parent", "i4"))
-
     # SH DC
     vertex_dtype += [(f"f_dc_{i}", "f4") for i in range(3)]
-
     # scales (scale_0..)
     for i in range(scales.shape[1]):
         vertex_dtype.append((f"scale_{i}", "f4"))
-
     # rotation (rot_0..rot_M)
     for i in range(rots.shape[1]):
         vertex_dtype.append((f"rot_{i}", "f4"))
+    # parents
+    vertex_dtype += [(f"parent_{i}", "i4") for i in range(parent_count)]
 
-    # Create structured array and fill fields
+    # Create structured array with final dtype and fill fields directly (no intermediate copy)
     vertices = np.empty(N, dtype=vertex_dtype)
     vertices["x"] = xyz[:, 0].astype(np.float32)
     vertices["y"] = xyz[:, 1].astype(np.float32)
     vertices["z"] = xyz[:, 2].astype(np.float32)
     vertices["opacity"] = opacities.reshape(-1).astype(np.float32)
-    if parent_present:
-        vertices["parent"] = parent_arr.astype(np.int32)
-        # print("Get parent info")
 
     # SH DC
     vertices["f_dc_0"] = shs[:, 0].astype(np.float32)
@@ -244,6 +280,10 @@ def save_ply(data, path: str):
     # rotation
     for i in range(rots.shape[1]):
         vertices[f"rot_{i}"] = rots[:, i].astype(np.float32)
+
+    # parents
+    for i in range(parent_count):
+        vertices[f"parent_{i}"] = parents[:, i].astype(np.int32)
 
     ply_el = PlyElement.describe(vertices, "vertex")
     PlyData([ply_el], text=False).write(path)

@@ -1,6 +1,7 @@
 import os
 import trimesh
 import numpy as np
+import torch
 
 # Import from the shared utils under the src root
 from utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
@@ -31,10 +32,11 @@ class AvatarTemplate:
         x, y, z -> position
         nx, ny, nz -> normal
         f_dc_0, f_dc_1, f_dc_2 -> SH DC terms
-        f_rest_0 .. f_rest_44 -> SH rest terms
+        f_rest_0 .. f_rest_44 -> SH rest terms, Ignore for now
         opacity -> opacity
         scale_0, scale_1, scale_2 -> scale
         rot_0, rot_1, rot_2, rot_3 -> rotation
+        parent_0, parent_1, parent_2 -> the 3 vertex indices that define the face
 
     Notes:
     - The number of Gaussians per face is currently static.
@@ -44,13 +46,19 @@ class AvatarTemplate:
     def __init__(self, avatar_path=None, cano_mesh_path=None, k_num_gaussians=None):
         # Read defaults from config if not provided
         self.cano_mesh_path = (
-            cano_mesh_path if cano_mesh_path is not None else get_cfg("avatar.template.cano_mesh_path", "models/smplx/smplx_uv.obj")
+            cano_mesh_path
+            if cano_mesh_path is not None
+            else get_cfg("avatar.template.cano_mesh_path", "models/smplx/smplx_uv.obj")
         )
         self.avatar_path = (
-            avatar_path if avatar_path is not None else get_cfg("avatar.template.path", "./models/avatar_template.ply")
+            avatar_path
+            if avatar_path is not None
+            else get_cfg("avatar.template.path", "./models/avatar_template.ply")
         )
         self.k_num_gaussians = int(
-            k_num_gaussians if k_num_gaussians is not None else get_cfg("avatar.template.k_num_gaussians", 4)
+            k_num_gaussians
+            if k_num_gaussians is not None
+            else get_cfg("avatar.template.k_num_gaussians", 4)
         )
         # self.avatar = self.load_avatar_template()
 
@@ -63,34 +71,48 @@ class AvatarTemplate:
         )
         return mesh
 
-    def load_avatar_template(self, mode=None, regenerate=None):
+    def load_avatar_template(self, mode=None):
         """
         Load or generate the avatar template.
 
-        If mode or regenerate are None, they are read from config keys:
-          avatar.template.mode (default: "default")
-          avatar.template.regenerate (default: False)
+        Args:
+        mode:
+          1. "default": load the saved template as is.
+          2. "generate": regenerate the template from the canonical mesh even if a saved file exists.
+          3. "test": load the saved template but convert local coords to world coords for visualization.
+
+        Returns:
+        _avatar: dict with keys 'xyz', 'shs', 'opacities', 'scales', 'rots', 'parents'
         """
+
+        # Decide mode flag
         if mode is None:
             mode = get_cfg("avatar.template.mode", "default")
-        if regenerate is None:
-            regenerate = bool(get_cfg("avatar.template.regenerate", False))
-        if os.path.exists(self.avatar_path) and not regenerate:
-            if mode == "test":
-                # In test mode, we reload the xyz from face based local coords to world coords
-                print("Reloading avatar template in test mode for visualization...")
-                cano_mesh = self.load_cano_mesh()
-                _avatar = load_ply(self.avatar_path, mode="test", cano_mesh=cano_mesh)
-                test_path = self.avatar_path.replace(".ply", "_test.ply")
-                save_ply(_avatar, test_path)
-            else:
-                print(f"Loaded avatar template from: {self.avatar_path}")
-                _avatar = load_ply(self.avatar_path, mode="default")
+        if not os.path.exists(self.avatar_path):
+            mode = "generate"
+
+        # Load or generate avatar based on mode
+        if mode == "default":
+            assert os.path.exists(
+                self.avatar_path
+            ), f"Avatar template file not found: {self.avatar_path}"
+            print(f"Loaded avatar template from: {self.avatar_path}")
+            _avatar = load_ply(self.avatar_path, mode="default")
             return _avatar
-        else:
+        elif mode == "generate":
+            print(f"Generating avatar template...")
             _avatar = self.generate_avatar_template()
             save_ply(_avatar, self.avatar_path)
             print("Generated and saved avatar template to:", self.avatar_path)
+            return _avatar
+        else:  # mode == "test"
+            # In test mode, we reload the xyz from face based local coords to world coords for visualization
+            print("Reloading avatar template in test mode for visualization...")
+            cano_mesh = self.load_cano_mesh()
+            _avatar = load_ply(self.avatar_path, mode="test", cano_mesh=cano_mesh)
+            test_path = self.avatar_path.replace(".ply", "_test.ply")
+            save_ply(_avatar, test_path)
+            print("Saved test avatar template to:", test_path)
             return _avatar
 
     def load_animated_avatar(self, mesh_path=None):
@@ -110,7 +132,7 @@ class AvatarTemplate:
 
     def generate_avatar_template(self):
         mesh = self.load_cano_mesh()
-        print(f"Generating avatar template...")
+        # Example vertex/face data:
         # vertices[0]: [ 0.062714  0.2885   -0.009561]
         # face[0]: [3 1 0]
         vertices = mesh.vertices
@@ -128,26 +150,36 @@ class AvatarTemplate:
             v1 = vertices[face[1]]
             v2 = vertices[face[2]]
 
-            # generate gaussians for each face
+            # generate gaussians for each face (returns tensors)
             xyzs, shs, opacity, scales, rots = self.generate_gaussians_per_face(
                 v0, v1, v2
             )
+
             all_xyz.append(xyzs)
             all_shs.append(shs)
             all_opacities.append(opacity)
             all_scales.append(scales)
             all_rots.append(rots)
-            all_parents.extend([idx] * self.k_num_gaussians)
+            # Record the 3 vertex indices that define the face as parents for each gaussian
+            # Shape: (k_num_gaussians, 3)
+            parent_triplet = torch.tensor(
+                [int(face[0]), int(face[1]), int(face[2])], dtype=torch.int32
+            )
+            parents_for_gaussians = parent_triplet.unsqueeze(0).repeat(
+                self.k_num_gaussians, 1
+            )
+            all_parents.append(parents_for_gaussians)
 
         if len(all_xyz) == 0:
             raise RuntimeError("No gaussians generated from mesh")
 
-        all_xyz = np.concatenate(all_xyz, axis=0)
-        all_shs = np.concatenate(all_shs, axis=0)
-        all_opacities = np.concatenate(all_opacities, axis=0).reshape(-1, 1)
-        all_scales = np.concatenate(all_scales, axis=0)
-        all_rots = np.concatenate(all_rots, axis=0)
-        parents = np.asarray(all_parents, dtype=np.int32)
+        # Concatenate lists of torch tensors into single tensors
+        all_xyz = torch.cat(all_xyz, dim=0)
+        all_shs = torch.cat(all_shs, dim=0)
+        all_opacities = torch.cat(all_opacities, dim=0).reshape(-1, 1)
+        all_scales = torch.cat(all_scales, dim=0)
+        all_rots = torch.cat(all_rots, dim=0)
+        all_parents = torch.cat(all_parents, dim=0)  # [N_gaussians, 3]
 
         data = {
             "xyz": all_xyz,
@@ -155,51 +187,62 @@ class AvatarTemplate:
             "opacities": all_opacities,
             "scales": all_scales,
             "rots": all_rots,
-            "parent": parents,
+            "parent": all_parents,
         }
 
         return data
 
     def generate_gaussians_per_face(self, v0, v1, v2):
         num_gaussians = self.k_num_gaussians
-        center = (v0 + v1 + v2) / 3.0
+
+        v0_t = torch.as_tensor(v0, dtype=torch.float32)
+        v1_t = torch.as_tensor(v1, dtype=torch.float32)
+        v2_t = torch.as_tensor(v2, dtype=torch.float32)
+
+        center = (v0_t + v1_t + v2_t) / 3.0
 
         # Construct a local coordinate system for the face
-        e1 = v1 - v0
-        normal = np.cross(e1, v2 - v0)
-        e2 = np.cross(normal, e1)
-        e2 = e2 / (np.linalg.norm(e2) + 1e-9)
+        e1 = v1_t - v0_t
+        normal = torch.cross(e1, v2_t - v0_t)
+        e2 = torch.cross(normal, e1)
+        e2 = e2 / (torch.norm(e2) + 1e-9)
 
-        R = np.stack([e1, e2, normal], axis=1)  # 3×3 rotation matrix (columns)
+        R_t = torch.stack([e1, e2, normal], dim=1)  # 3×3 rotation matrix (columns)
 
-        # Define barycentric coordinates for 4 Gaussians per face
-        B4 = [
-            (1 / 3, 1 / 3, 1 / 3),
-            (1 / 2, 1 / 2, 0),
-            (1 / 2, 0, 1 / 2),
-            (0, 1 / 2, 1 / 2),
-        ]
+        # Define barycentric coordinates (allow overriding in config)
+        B4 = get_cfg(
+            "avatar.template.barycentric_coords",
+            [(0.6, 0.2, 0.2), (0.2, 0.6, 0.2), (0.2, 0.2, 0.6), (1 / 3, 1 / 3, 1 / 3)],
+        )
 
         # Calculate face area to determine Gaussian scale
-        face_area = np.linalg.norm(np.cross(v1 - v0, v2 - v0)) / 2.0
-        gaussian_area = face_area / num_gaussians
-        r = np.sqrt(gaussian_area / np.pi)
-        r = np.log(r)  # Modified to log scale
-        std_scale = np.array([r, r, r])  # Initial scale with small depth
+        face_area = torch.norm(torch.cross(v1_t - v0_t, v2_t - v0_t)) / 2.0
+        gaussian_area = face_area / float(num_gaussians)
+        r = torch.sqrt(gaussian_area / float(np.pi))
+        r = torch.log(r)
+        std_scale = torch.tensor([r, r, r], dtype=torch.float32)
 
-        # Initialize Gaussians (as numpy arrays)
-        xyzs = np.zeros((num_gaussians, 3), dtype=np.float32)
-        shs = np.zeros((num_gaussians, 3), dtype=np.float32)
-        opacity = np.zeros((num_gaussians, 1), dtype=np.float32)
-        scales = np.zeros((num_gaussians, 3), dtype=np.float32)
-        rots = np.zeros((num_gaussians, 4), dtype=np.float32)
-        for i in range(self.k_num_gaussians):
-            # Store the relative position to the face center
-            xyzs[i, :] = B4[i][0] * v0 + B4[i][1] * v1 + B4[i][2] * v2 - center
+        # Initialize tensors
+        xyzs = torch.zeros((num_gaussians, 3), dtype=torch.float32)
+        shs = torch.zeros((num_gaussians, 3), dtype=torch.float32)
+        opacity = torch.zeros((num_gaussians, 1), dtype=torch.float32)
+        scales = torch.zeros((num_gaussians, 3), dtype=torch.float32)
+        rots = torch.zeros((num_gaussians, 4), dtype=torch.float32)
+
+        # We still use the existing matrix_to_quaternion helper which expects numpy input;
+        # convert R_t to numpy just for quaternion computation (cheap for small matrices).
+        R_np = R_t.cpu().numpy()
+        quat = matrix_to_quaternion(R_np)
+
+        for i in range(num_gaussians):
+            bary = B4[i]
+            xyzs[i, :] = bary[0] * v0_t + bary[1] * v1_t + bary[2] * v2_t - center
             shs[i, :] = 0.5
             opacity[i, 0] = 0.6
             scales[i, :] = std_scale
-            rots[i, :] = matrix_to_quaternion(R)
+            rots[i, :] = torch.from_numpy(quat).to(torch.float32)
+
+        # Shape: (num_gaussians, 3), (num_gaussians, 3), (num_gaussians, 1), (num_gaussians, 3), (num_gaussians, 4)
         return xyzs, shs, opacity, scales, rots
 
 
