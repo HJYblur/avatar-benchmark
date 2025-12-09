@@ -43,7 +43,7 @@ class AvatarTemplate:
     - Generation is intended to be done once; subsequent uses load the cached file.
     """
 
-    def __init__(self, avatar_path=None, cano_mesh_path=None, k_num_gaussians=None):
+    def __init__(self, avatar_path=None, cano_mesh_path=None, _k_num_gaussians=None):
         # Read defaults from config if not provided
         self.cano_mesh_path = (
             cano_mesh_path
@@ -55,12 +55,13 @@ class AvatarTemplate:
             if avatar_path is not None
             else get_cfg("avatar.template.path", "./models/avatar_template.ply")
         )
-        self.k_num_gaussians = int(
-            k_num_gaussians
-            if k_num_gaussians is not None
-            else get_cfg("avatar.template.k_num_gaussians", 4)
+        self._k_num_gaussians = int(
+            _k_num_gaussians
+            if _k_num_gaussians is not None
+            else get_cfg("avatar.template._k_num_gaussians", 4)
         )
-        # self.avatar = self.load_avatar_template()
+        self._barycentric_coords = self.get_barycentric_coords()
+        self._avatar = self.load_avatar_template(mode="default")
 
     def load_cano_mesh(self):
         if not os.path.exists(self.cano_mesh_path):
@@ -165,12 +166,12 @@ class AvatarTemplate:
             all_scales.append(scales)
             all_rots.append(rots)
             # Record the 3 vertex indices that define the face as parents for each gaussian
-            # Shape: (k_num_gaussians, 3)
+            # Shape: (_k_num_gaussians, 3)
             parent_triplet = torch.tensor(
                 [int(face[0]), int(face[1]), int(face[2])], dtype=torch.int32
             )
             parents_for_gaussians = parent_triplet.unsqueeze(0).repeat(
-                self.k_num_gaussians, 1
+                self._k_num_gaussians, 1
             )
             all_parents.append(parents_for_gaussians)
 
@@ -197,7 +198,7 @@ class AvatarTemplate:
         return data
 
     def generate_gaussians_per_face(self, v0, v1, v2):
-        num_gaussians = self.k_num_gaussians
+        num_gaussians = self._k_num_gaussians
 
         v0_t = torch.as_tensor(v0, dtype=torch.float32)
         v1_t = torch.as_tensor(v1, dtype=torch.float32)
@@ -210,20 +211,7 @@ class AvatarTemplate:
         normal = torch.linalg.cross(e1, v2_t - v0_t)
         e2 = torch.linalg.cross(normal, e1)
         e2 = e2 / (torch.norm(e2) + 1e-9)
-
         R_t = torch.stack([e1, e2, normal], dim=1)  # 3×3 rotation matrix (columns)
-
-        # Define barycentric coordinates
-        B4_list = get_cfg(
-            "avatar.template.barycentric_coords",
-            [(0.6, 0.2, 0.2), (0.2, 0.6, 0.2), (0.2, 0.2, 0.6), (1 / 3, 1 / 3, 1 / 3)],
-        )
-
-        # sanitize to floats
-        B4_list = [[float(x) for x in row] for row in B4_list]
-
-        # convert to tensor
-        B4 = torch.tensor(B4_list, dtype=torch.float32)
 
         # Calculate face area to determine Gaussian scale
         face_area = torch.norm(torch.linalg.cross(v1_t - v0_t, v2_t - v0_t)) / 2.0
@@ -244,6 +232,7 @@ class AvatarTemplate:
         R_np = R_t.cpu().numpy()
         quat = matrix_to_quaternion(R_np)
 
+        B4 = self.get_barycentric_coords()
         for i in range(num_gaussians):
             bary = B4[i]
             xyzs[i, :] = bary[0] * v0_t + bary[1] * v1_t + bary[2] * v2_t - center
@@ -254,6 +243,37 @@ class AvatarTemplate:
 
         # Shape: (num_gaussians, 3), (num_gaussians, 3), (num_gaussians, 1), (num_gaussians, 3), (num_gaussians, 4)
         return xyzs, shs, opacity, scales, rots
+
+    def get_barycentric_coords(self):
+        if not hasattr(self, "_barycentric_coords"):
+            B4_list = get_cfg(
+                "avatar.template.barycentric_coords",
+                [
+                    (0.6, 0.2, 0.2),
+                    (0.2, 0.6, 0.2),
+                    (0.2, 0.2, 0.6),
+                    (1 / 3, 1 / 3, 1 / 3),
+                ],
+            )
+            B4_list = [[float(x) for x in row] for row in B4_list]
+            self._barycentric_coords = torch.tensor(B4_list, dtype=torch.float32)
+        return self._barycentric_coords
+
+    @property
+    def barycentric_coords(self):
+        return self._barycentric_coords
+
+    @property
+    def total_gaussians_num(self):
+        return self.avatar["xyz"].shape[0]
+
+    @property
+    def avatar(self):
+        return self._avatar
+
+    @property
+    def parents(self):
+        return self.avatar["parent"]
 
 
 # if __name__ == "__main__":

@@ -50,6 +50,9 @@ class NLFBackboneAdapter:
 
         Returns a dictionary containing both the feature map and the NLF
         detection outputs (including 2D/3D poses as provided by NLF).
+
+        feature map: Tensor of shape (B, C, H, W)
+        preds: Dict with NLF detection outputs.
         """
 
         feature_map = self.extract_feature_map(
