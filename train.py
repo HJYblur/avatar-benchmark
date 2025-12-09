@@ -14,26 +14,6 @@ from training.trainer import Trainer
 from utils.config import load_config
 
 
-def forward_step(
-    image: torch.Tensor,
-    intrinsics: torch.Tensor,
-    backbone_adapter,
-    localizer=None,
-    estimator=None,
-):
-    """Collapsed pipeline forward helper.
-
-    1) Encode via NLF backbone.
-    2) (Optional) Localize per-canonical point.
-    3) (Optional) Sample features and estimate gaussian params.
-    """
-    feats = backbone_adapter(image, use_half=True)
-    _ = intrinsics  # reserved for next stages
-    _ = localizer
-    _ = estimator
-    return {"features": feats}
-
-
 def main():
     parser = argparse.ArgumentParser(description="NLF-GS Training Scaffold")
     parser.add_argument("--config", type=str, default="configs/nlfgs_base.yaml")

@@ -1,3 +1,6 @@
+sys:
+  device: cpu
+
 data:
   root: data/people_snapshot_public
   image_glob: "**/*.jpg"
