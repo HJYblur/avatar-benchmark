@@ -19,4 +19,8 @@ avatar:
     path: models/avatar_template.ply
     cano_mesh_path: models/smplx/smplx_uv.obj
     k_num_gaussians: 4
-    barycentric_coords: [[0.6, 0.2, 0.2], [0.2, 0.6, 0.2], [0.2, 0.2, 0.6], [1/3, 1/3, 1/3]]
+    barycentric_coords:
+      - [0.6, 0.2, 0.2]
+      - [0.2, 0.6, 0.2]
+      - [0.2, 0.2, 0.6]
+      - [0.3333333333, 0.3333333333, 0.3333333333]

@@ -4,8 +4,8 @@ import numpy as np
 import torch
 
 # Import from the shared utils under the src root
-from utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
-from utils.config import get as get_cfg
+from src.utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
+from src.utils.config import get as get_cfg
 
 
 class GaussianData:
@@ -126,7 +126,7 @@ class AvatarTemplate:
             f"Loaded animated mesh from {mesh_path}, with {len(animated_mesh.vertices)} vertices and {len(animated_mesh.faces)} faces."
         )
         _avatar = load_ply(self.avatar_path, mode="test", cano_mesh=animated_mesh)
-        test_path = self.avatar_path.replace(".ply", "_test.ply")
+        test_path = self.avatar_path.replace(".ply", "_anim.ply")
         save_ply(_avatar, test_path)
         return _avatar
 
@@ -203,20 +203,26 @@ class AvatarTemplate:
 
         # Construct a local coordinate system for the face
         e1 = v1_t - v0_t
-        normal = torch.cross(e1, v2_t - v0_t)
-        e2 = torch.cross(normal, e1)
+        normal = torch.linalg.cross(e1, v2_t - v0_t)
+        e2 = torch.linalg.cross(normal, e1)
         e2 = e2 / (torch.norm(e2) + 1e-9)
 
         R_t = torch.stack([e1, e2, normal], dim=1)  # 3×3 rotation matrix (columns)
 
-        # Define barycentric coordinates (allow overriding in config)
-        B4 = get_cfg(
+        # Define barycentric coordinates
+        B4_list = get_cfg(
             "avatar.template.barycentric_coords",
             [(0.6, 0.2, 0.2), (0.2, 0.6, 0.2), (0.2, 0.2, 0.6), (1 / 3, 1 / 3, 1 / 3)],
         )
 
+        # sanitize to floats
+        B4_list = [[float(x) for x in row] for row in B4_list]
+
+        # convert to tensor
+        B4 = torch.tensor(B4_list, dtype=torch.float32)
+
         # Calculate face area to determine Gaussian scale
-        face_area = torch.norm(torch.cross(v1_t - v0_t, v2_t - v0_t)) / 2.0
+        face_area = torch.norm(torch.linalg.cross(v1_t - v0_t, v2_t - v0_t)) / 2.0
         gaussian_area = face_area / float(num_gaussians)
         r = torch.sqrt(gaussian_area / float(np.pi))
         r = torch.log(r)
@@ -248,4 +254,12 @@ class AvatarTemplate:
 
 # if __name__ == "__main__":
 #     avatar_template = AvatarTemplate()
+#     avatar_generated = avatar_template.load_avatar_template(mode="generate")
 #     print("Avatar template generated and saved.")
+#     avatar_test = avatar_template.load_avatar_template(mode="test")
+#     print("Avatar template test file generated.")
+
+#     animation_mesh_path = "/Users/lemon/Documents/TUD/Thesis/Code/avatar-benchmark/tmp/output_smplx_mesh.ply"
+#     animated_avatar = avatar_template.load_animated_avatar(
+#         mesh_path=animation_mesh_path
+#     )
