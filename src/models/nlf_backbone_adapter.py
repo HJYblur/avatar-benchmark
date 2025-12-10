@@ -59,6 +59,6 @@ class NLFBackboneAdapter:
             image=frame_batch, use_half=use_half, use_heatmap_head=use_heatmap_head
         )
         preds = self.nlf_model.detect_smpl_batched(
-            images=frame_batch, model_name=model_name, **kwargs
+            frame_batch, model_name=model_name, **kwargs
         )
         return feature_map, preds

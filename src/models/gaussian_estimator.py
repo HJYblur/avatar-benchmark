@@ -2,25 +2,19 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from avatar.avatar_template import AvatarTemplate
+
 
 class AvatarGaussianEstimator(nn.Module):
     """
     Feature Sampler features and predicts Gaussian parameters
     """
 
-    def __init__(self, template, feature_map, pred):
+    def __init__(self, template: AvatarTemplate):
         super().__init__()
         self._avatar = template
-        self._feature_map = feature_map  # Tensor of shape (B, C, H, W)
-        self._vertices2d = pred["vertices2d"][
-            0
-        ]  # vertices2d[0] -> torch.Size([1, 10475, 2]), (B, N, 2)
-        self._vertices3d = pred["vertices3d"][
-            0
-        ]  # vertices3d[0] -> torch.Size([1, 10475, 3]), (B, N, 3)
-        self._gaussian_estimator = GaussianEstimator(feature_dim=feature_map.shape[1])
 
-    def compute_gaussian_coord2d(self):
+    def compute_gaussian_coord2d(self, feature_map, pred):
         """Vectorized computation of per-gaussian 2D centers.
 
         Returns:
@@ -33,7 +27,10 @@ class AvatarGaussianEstimator(nn.Module):
         parents = self._avatar.parents()
         bary = self._avatar.barycentric_coords()
 
-        device = self._feature_map.device
+        # Load predicted coords for vertices (B, N, 2/3)
+        vertices2d = pred["vertices2d"][0]  # vertices2d[0] -> torch.Size([1, 10475, 2])
+        vertices3d = pred["vertices3d"][0]  # vertices3d[0] -> torch.Size([1, 10475, 3])
+        device = feature_map.device
 
         # Normalize types and devices
         parents = parents.to(device=device, dtype=torch.long)
@@ -52,10 +49,10 @@ class AvatarGaussianEstimator(nn.Module):
 
         return centers2d
 
-    def feature_sample(self):
-        centers2d = self.compute_gaussian_coord2d()  # (N,2)
-        B, C, H, W = self._feature_map.shape
-        device = self._feature_map.device
+    def feature_sample(self, feature_map, pred):
+        centers2d = self.compute_gaussian_coord2d(feature_map, pred)  # (N,2)
+        B, C, H, W = feature_map.shape
+        device = feature_map.device
 
         # Normalize
         x = centers2d[:, 0] / (W - 1) * 2 - 1
@@ -68,7 +65,7 @@ class AvatarGaussianEstimator(nn.Module):
         # Sample all N points
         # grid sample expects feature map (B, C, H, W) and grid of shape (B, H_out, W_out, 2)
         sampled = F.grid_sample(
-            self._feature_map,  # (B,C,H,W)
+            feature_map,  # (B,C,H,W)
             grid,  # (B,1,N,2)
             mode="bilinear",
             align_corners=True,
@@ -78,7 +75,7 @@ class AvatarGaussianEstimator(nn.Module):
         # Return (B,N,C)
         return sampled[:, :, 0, :].permute(0, 2, 1)
 
-    def forward(self):
+    def forward(self, feature_map, pred, gaussian_estimator):
         """Predict Gaussian parameters from the sampled features.
 
         Returns:
@@ -88,9 +85,9 @@ class AvatarGaussianEstimator(nn.Module):
               - 'alpha': Tensor of shape (N,)
               - 'sh': Tensor of shape (N, 3)
         """
-        batch_features = self.feature_sample()  # (B,N,C)
+        batch_features = self.feature_sample(feature_map, pred)  # (B,N,C)
         # For now, assume batch size 1
-        batch_gaussian_params = self._gaussian_estimator(
+        batch_gaussian_params = gaussian_estimator(
             batch_features[0]
         )  # (N, 1 + 4 + 3 + 3)
         return batch_gaussian_params

@@ -2,39 +2,44 @@ from typing import Any, Dict, Optional
 
 import torch
 from torch.utils.data import DataLoader
+import lightning as L
+from models.nlf_backbone_adapter import NLFBackboneAdapter
+from models.gaussian_estimator import AvatarGaussianEstimator
+from avatar.avatar_template import AvatarTemplate
 
 
-class Trainer:
+class Trainer(L.LightningModule):
     """
     Minimal training scaffold that demonstrates wiring:
     - Loads batches from a DataLoader
     - Encodes features with NLF backbone adapter
+    - Predict Gaussian parameters with AvatarGaussianEstimator
     - Placeholder for localization + gaussian estimation + losses
     """
 
     def __init__(
         self,
-        backbone_adapter: Any,
         dataloader: DataLoader,
-        device: Optional[torch.device] = None,
-    ) -> None:
-        self.backbone = backbone_adapter
+        backbone_adapter: NLFBackboneAdapter,
+        gaussian_estimator: SingleGaussianEstimator,
+    ):
+        super().__init__()
         self.dataloader = dataloader
-        self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.template = AvatarTemplate().load_avatar_template()
+        self.backbone = backbone_adapter
+        self.gaussian_estimator = gaussian_estimator
+        self.avatar_estimator = AvatarGaussianEstimator(self.template)
 
-    def train_one_epoch(self) -> Dict[str, float]:
-        metrics = {"batches": 0}
-        for batch in self.dataloader:
-            image = batch["image"].to(self.device)
-            # intrinsics = batch["intrinsics"].to(self.device)  # Reserved for localization
-            # canonical_points = batch["canonical_points"].to(self.device)
+    def training_step(self, batch: Dict[str, Any], batch_idx: int):
+        image, _ = batch
 
-            with torch.no_grad():
-                feats = self.backbone(image, use_half=True)
+        feats, preds = self.backbone.detect_with_features(image, use_half=True)
 
-            # Placeholders for downstream modules
-            _ = feats  # noqa: F841
+        gaussian_params = self.avatar_estimator(feats, preds, self.gaussian_estimator)
 
-            metrics["batches"] += 1
-        return metrics
+        # Reconstruct gaussian avatar and compute losses here...
+        return {"loss": 0.0}
 
+    def configure_optimizers(self):
+        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
+        return optimizer
