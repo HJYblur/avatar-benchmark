@@ -30,12 +30,18 @@ class NLFBackboneAdapter:
     def extract_feature_map(
         self, image: torch.Tensor, use_half: bool = True, use_heatmap_head: bool = True
     ) -> torch.Tensor:
-        """Return the backbone feature map only."""
+        """Return the backbone feature map only.
+
+        If ``use_heatmap_head`` is True and the NLF model exposes a heatmap head,
+        apply it as part of feature extraction.
+        """
 
         x = image.half() if use_half else image
         x = self.nlf_model.crop_model.backbone(x)
-        if use_heatmap_head:
-            x = self.nlf_model.crop_model.heatmap_head.layer(x)
+        if use_heatmap_head and hasattr(self.nlf_model.crop_model, "heatmap_head"):
+            head = self.nlf_model.crop_model.heatmap_head
+            # Some NLF variants expose ``heatmap_head.layer``, others are callable modules
+            x = getattr(head, "layer", head)(x)
         return x
 
     def detect_with_features(
@@ -48,11 +54,25 @@ class NLFBackboneAdapter:
     ) -> Dict[str, Any]:
         """Run detection while exposing the intermediate feature map.
 
-        Returns a dictionary containing both the feature map and the NLF
-        detection outputs (including 2D/3D poses as provided by NLF).
-
-        feature map: Tensor of shape (B, C, H, W)
-        preds: Dict with NLF detection outputs.
+        Returns a tuple: (feature_map, preds)
+          - feature_map: Tensor of shape (B, C, H, W)
+          - preds: Dict with NLF detection outputs.
+          E.g.
+            Prediction keys: ['boxes', 'pose', 'betas', 'trans', 'vertices3d', 'joints3d', 'vertices2d', 'joints2d', 'vertices3d_nonparam', 'joints3d_nonparam', 'vertices2d_nonparam', 'joints2d_nonparam', 'vertex_uncertainties', 'joint_uncertainties']
+            boxes -> torch.Size([Batch_size, num_people, 5])
+            pose -> torch.Size([Batch_size, num_people, 165])
+            betas -> torch.Size([Batch_size, num_people, 10])
+            trans -> torch.Size([Batch_size, num_people, 3])
+            vertices3d -> torch.Size([Batch_size, num_people, 10475, 3])
+            joints3d -> torch.Size([Batch_size, num_people, 55, 3])
+            vertices2d -> torch.Size([Batch_size, num_people, 10475, 2])
+            joints2d -> torch.Size([Batch_size, num_people, 55, 2])
+            vertices3d_nonparam -> torch.Size([Batch_size, num_people, 1024, 3])
+            joints3d_nonparam -> torch.Size([Batch_size, num_people, 55, 3])
+            vertices2d_nonparam -> torch.Size([Batch_size, num_people, 1024, 2])
+            joints2d_nonparam -> torch.Size([Batch_size, num_people, 55, 2])
+            vertex_uncertainties -> torch.Size([Batch_size, num_people, 1024])
+            joint_uncertainties -> torch.Size([Batch_size, num_people, 55])
         """
 
         feature_map = self.extract_feature_map(
