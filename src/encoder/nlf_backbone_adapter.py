@@ -34,6 +34,10 @@ class NLFBackboneAdapter:
 
         If ``use_heatmap_head`` is True and the NLF model exposes a heatmap head,
         apply it as part of feature extraction.
+
+        Outputs:
+            feature_map: Tensor of shape (B, C_local, Hf, Wf)
+            By default, C_local=512 when using EfficientNetV2.
         """
 
         x = image.half() if use_half else image

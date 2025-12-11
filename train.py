@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader
 sys.path.append(str(Path(__file__).parent / "src"))
 
 from data.datasets import AvatarDataset
-from models.nlf_backbone_adapter import NLFBackboneAdapter
+from encoder.nlf_backbone_adapter import NLFBackboneAdapter
 from training.trainer import Trainer
 from utils.config import load_config
 
