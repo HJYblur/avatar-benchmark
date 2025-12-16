@@ -55,11 +55,15 @@ class Trainer(L.LightningModule):
         B, C_local, Hf, Wf = feats.shape
         N = int(self.template.total_gaussians_num)
 
-        z_id = self.identity_encoder(feats)
+        z_id = self.identity_encoder(feats, preds)
 
-        local_feats = self.avatar_estimator.feature_sample(feats, preds)  # (B, N, C_local)
+        local_feats = self.avatar_estimator.feature_sample(
+            feats, preds
+        )  # (B, N, C_local)
 
-        coord3d = self.avatar_estimator.compute_gaussian_coord3d(feats, preds)  # (N, 3)
+        coord3d = self.avatar_estimator.compute_gaussian_coord3d(
+            feats, preds
+        )  # (B, N, 3)
 
         """
         Decode:
@@ -67,9 +71,8 @@ class Trainer(L.LightningModule):
         """
 
         z_expanded = z_id.unsqueeze(1).expand(-1, N, -1)  # (B, D) -> (B, N, D)
-        coord3d_b = coord3d.unsqueeze(0).expand(B, -1, -1)  # (N,3) -> (B,N,3)
         combined_feats = torch.cat(
-            [z_expanded, local_feats, coord3d_b], dim=-1
+            [z_expanded, local_feats, coord3d], dim=-1
         )  # (B, N, D + C_local + 3)
 
         gaussian_params = self.decoder(combined_feats)
