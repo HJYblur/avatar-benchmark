@@ -62,6 +62,7 @@ class AvatarTemplate:
         )
         self._barycentric_coords = self.get_barycentric_coords()
         self._avatar = self.load_avatar_template(mode="default")
+        self._mesh_faces = self.mesh_faces  # Preload mesh faces property
 
     def load_cano_mesh(self):
         if not os.path.exists(self.cano_mesh_path):
@@ -274,6 +275,13 @@ class AvatarTemplate:
     @property
     def parents(self):
         return self.avatar["parent"]
+
+    @property
+    def mesh_faces(self):
+        if not hasattr(self, "_mesh_faces"):
+            mesh = self.load_cano_mesh()
+            self._mesh_faces = torch.as_tensor(mesh.faces, dtype=torch.int32)
+        return self._mesh_faces
 
 
 # if __name__ == "__main__":

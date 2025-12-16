@@ -50,12 +50,14 @@ class Trainer(L.LightningModule):
         Local Feats: (B, N, C_local)
         pose: (B, N, 3)
         """
+        B, H, W, C_rgb = image.shape
         feats, preds = self.backbone.detect_with_features(image, use_half=True)
 
-        B, C_local, Hf, Wf = feats.shape
+        B_feats, C_local, Hf, Wf = feats.shape
+        assert B == B_feats, "Batch size mismatch between image and features"
         N = int(self.template.total_gaussians_num)
 
-        z_id = self.identity_encoder(feats, preds)
+        z_id = self.identity_encoder(feature_map=feats, preds=preds, img_shape=(H, W))
 
         local_feats = self.avatar_estimator.feature_sample(
             feats, preds
