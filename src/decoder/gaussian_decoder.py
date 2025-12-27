@@ -28,4 +28,6 @@ class GaussianDecoder(nn.Module):
         )
 
     def forward(self, x):  # (B, N, in_dim) -> (B, N, out_dim)
+        # TODO[run-pipeline]: Split the output head into named fields and apply appropriate
+        #   parameterizations, e.g., scales=exp(), rotation=normalize_quat(), alpha=sigmoid(), sh=tanh().
         return self.mlp(x)

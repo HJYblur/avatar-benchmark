@@ -24,6 +24,8 @@ def load_config(path: Optional[str] = None) -> Dict[str, Any]:
     except Exception:
         _CONFIG = {}
         _LOADED = True
+        # TODO[run-pipeline]: Raise or log a clear error when config cannot be loaded;
+        #   and validate presence of required sections (data, train, avatar.template).
     return _CONFIG
 
 
@@ -42,4 +44,3 @@ def get(path: str, default: Any = None) -> Any:
         else:
             return default
     return cur
-

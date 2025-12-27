@@ -2,16 +2,19 @@ sys:
   device: cpu
 
 data:
+  # TODO[run-pipeline]: Point to a real dataset root with RGB images.
   root: data/people_snapshot_public
   image_glob: "**/*.jpg"
   fov_degrees: 55.0
   proc_side: 256
   template_path: models/avatar_template.ply
 
-train:
-  batch_size: 2
-  num_workers: 2
-  epochs: 1
+nlf:
+  checkpoint_path: models/nlf_checkpoint/nlf_l_multi.torchscript
+  use_half: true
+
+identity_encoder:
+  latent_dim: 128
 
 avatar:
   template:
@@ -25,3 +28,8 @@ avatar:
       - [0.2, 0.6, 0.2]
       - [0.2, 0.2, 0.6]
       - [0.3333333333, 0.3333333333, 0.3333333333]
+
+train:
+  batch_size: 2
+  num_workers: 2
+  epochs: 1

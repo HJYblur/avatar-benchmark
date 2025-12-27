@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import cv2
+from src.utils.config import get as get_cfg
 
 
 class IdentityEncoder(nn.Module):
@@ -9,8 +10,10 @@ class IdentityEncoder(nn.Module):
     The output is a latent vector of specified dimension.
     """
 
-    def __init__(self, backbone_feat_dim, latent_dim=128, mask=None):
+    def __init__(self, backbone_feat_dim, latent_dim, mask=None):
         super().__init__()
+        self.backbone_feat_dim = backbone_feat_dim
+        self.latent_dim = latent_dim
         # TODO(Optional): Masked pooling using coord2d to extract only foreground avatar features
         self.mask = mask
         self.fc = nn.Linear(backbone_feat_dim, latent_dim)

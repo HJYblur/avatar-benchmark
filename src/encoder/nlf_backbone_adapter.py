@@ -40,6 +40,8 @@ class NLFBackboneAdapter:
             By default, C_local=512 when using EfficientNetV2.
         """
 
+        # TODO[run-pipeline]: Ensure input normalization (mean/std, resizing, color order) matches the
+        #   NLF backbone expectations. The dataset currently returns float in [0,1] RGB.
         x = image.half() if use_half else image
         x = self.nlf_model.crop_model.backbone(x)
         if use_heatmap_head and hasattr(self.nlf_model.crop_model, "heatmap_head"):
@@ -82,6 +84,8 @@ class NLFBackboneAdapter:
         feature_map = self.extract_feature_map(
             image=frame_batch, use_half=use_half, use_heatmap_head=use_heatmap_head
         )
+        # TODO[run-pipeline]: If using a TorchScript multiperson model, wrap its call and map outputs
+        #   to the same dict keys expected downstream (e.g., vertices2d, vertices3d, *_nonparam).
         preds = self.nlf_model.detect_smpl_batched(
             frame_batch, model_name=model_name, **kwargs
         )

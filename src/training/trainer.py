@@ -32,6 +32,7 @@ class Trainer(L.LightningModule):
         self.avatar_estimator = AvatarGaussianEstimator(self.template)
         self.identity_encoder = identity_encoder
         self.decoder = decoder
+        # TODO[run-pipeline]: Add args/config to control optimizer, lr, loss weights, renderer, etc.
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
         # Be tolerant to different batch formats
@@ -43,14 +44,18 @@ class Trainer(L.LightningModule):
             # fallback
             image = batch
 
-        """
-        Encode:
-        Image(B, H, W, 3) -> Feats(B, C, Hf, Wf), Preds
-        z_id: (B, D)
-        Local Feats: (B, N, C_local)
-        pose: (B, N, 3)
-        """
-        B, H, W, C_rgb = image.shape
+        # Ensure BCHW order
+        if image.dim() == 3:
+            if image.shape[0] == 3:
+                image = image.unsqueeze(0)
+            elif image.shape[-1] == 3:
+                image = image.permute(2, 0, 1).unsqueeze(0)
+        elif image.dim() == 4 and image.shape[1] != 3 and image.shape[-1] == 3:
+            image = image.permute(0, 3, 1, 2).contiguous()
+
+        B = image.shape[0]
+        H = image.shape[-2]
+        W = image.shape[-1]
         feats, preds = self.backbone.detect_with_features(image, use_half=True)
 
         B_feats, C_local, Hf, Wf = feats.shape
@@ -79,13 +84,13 @@ class Trainer(L.LightningModule):
 
         gaussian_params = self.decoder(combined_feats)
 
-        # TODO: Reconstruct Avatar from gaussian_params and render
+        # Reconstruct/render TODO handled elsewhere: scales/rots/alpha parameterization and losses to be added.
 
-        # TODO: add real supervision. Keep graph alive with a zero loss.
         loss = gaussian_params.sum() * 0.0
         return loss
 
     def configure_optimizers(self):
+        # TODO[run-pipeline]: Expose LR and optimizer choice via config; add scheduler if needed.
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
 
