@@ -209,9 +209,10 @@ __marimo__/
 # Project specific
 # Ignore data files
 data/*
+processed/*
 
 # Ignore output files
-log/*
+logs/*
 output/*
 
 models/nlf_checkpoint/

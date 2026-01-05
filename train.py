@@ -1,14 +1,15 @@
 import argparse
+import logging
 import sys
 from pathlib import Path
 
 import torch
-from torch.utils.data import DataLoader
 import lightning as L
 
 # Make 'src' importable when running as a script
 sys.path.append(str(Path(__file__).parent / "src"))
 
+from src.data.datamodule import AvatarDataModule
 from src.encoder.nlf_backbone_adapter import NLFBackboneAdapter
 from src.encoder.identity_encoder import IdentityEncoder
 from src.decoder.gaussian_decoder import GaussianDecoder
@@ -17,26 +18,56 @@ from src.utils.config import load_config
 
 
 def main():
+    # configure logging
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "train.log"
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(str(log_file)),
+        ],
+    )
+    logger = logging.getLogger("train")
+
+    logger.info("Starting training script")
     # Arg parsing
     parser = argparse.ArgumentParser(description="NLF-GS Training Scaffold")
     parser.add_argument("--config", type=str, default="configs/nlfgs_base.yaml")
     args = parser.parse_args()
     cfg = load_config(args.config)
+    logger.info(f"Loaded config: {args.config}")
 
-    # TODO: Build dataset and dataloader
-    # ds = Dataset()
-    # dl = DataLoader()
+    # Set device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    logger.info(f"Using device: {device}")
+
+    # Build datamodule
+    dm = AvatarDataModule(cfg)
+    dm.setup("fit")
+    logger.info("DataModule setup complete")
 
     # Import nlf model
-    nlf_checkpoint = torch.jit.load(cfg["nlf"]["checkpoint_path"])
+    nlf_checkpoint = torch.jit.load(
+        cfg["nlf"]["checkpoint_path"], map_location=device
+    ).eval()
     backbone = NLFBackboneAdapter(nlf_checkpoint)
+    logger.info("NLF Backbone Adapter initialized")
 
     # Infer backbone feature dimensionality from a sample batch
-    sample = next(iter(dl))
+    sample = next(iter(dm.train_dataloader()))
     sample_img = sample["image"]  # (B,3,H,W)
+    logger.info(f"Sample image tensor shape: {tuple(sample_img.shape)}")
     with torch.no_grad():
-        feats = backbone.extract_feature_map(sample_img, use_half=True)
+        feats = backbone.extract_feature_map(
+            sample_img, use_half=bool(cfg.get("nlf", {}).get("use_half", True))
+        )
     c_local = int(feats.shape[1])
+    logger.info(
+        f"Backbone feature map channels: {c_local}, feat shape: {tuple(feats.shape)}"
+    )
 
     id_latent_dim = int(cfg["identity_encoder"]["latent_dim"])
     id_encoder = IdentityEncoder(backbone_feat_dim=c_local, latent_dim=id_latent_dim)
@@ -49,10 +80,14 @@ def main():
     )
 
     max_epochs = int(cfg["train"]["epochs"]) if "train" in cfg else 1
+    logger.info(f"Training for max_epochs={max_epochs}")
+
     trainer = L.Trainer(
-        max_epochs=max_epochs, devices=1, accelerator="auto", logger="wandb"
+        max_epochs=max_epochs, devices=1, accelerator="auto", logger=False
     )
-    trainer.fit(module, train_dataloaders=dl)
+    logger.info("Beginning trainer.fit()")
+    trainer.fit(module, datamodule=dm)
+    logger.info("trainer.fit() finished")
 
 
 if __name__ == "__main__":
