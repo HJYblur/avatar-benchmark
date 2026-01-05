@@ -58,8 +58,8 @@ This repo scaffolds an avatar generation pipeline that combines an NLF backbone 
 
 ## Usage (Scaffold)
 - Generate or load the avatar template via config (`avatar.template.mode: generate|default|test`).
-- Run: `python train.py --config configs/nlfgs_base.yaml --nlf_model_module <your.module.exposing.nlf_model>`
-  - Alternative: add a TorchScript loader flag if you prefer scripted models.
+- Point `data.root` to a directory with RGB images; ensure `nlf.checkpoint_path` points to a TorchScript MultipersonNLF checkpoint.
+- Run: `python train.py --config configs/nlfgs_base.yaml`
 
 ## 3DGS Loading Site
 [Link](https://superspl.at/editor)
