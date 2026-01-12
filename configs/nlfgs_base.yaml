@@ -6,7 +6,7 @@ data:
   # Either a single subject dir (processed/<subject>) or a folder of subjects (processed/).
   root: processed
   # integer image resize side length
-  proc_side: 256
+  proc_side: 512
   template_path: models/avatar_template.ply
 
 nlf:
@@ -30,6 +30,7 @@ avatar:
       - [0.3333333333, 0.3333333333, 0.3333333333]
 
 train:
+  accelerator: cpu
   batch_size: 2
   num_workers: 2
   epochs: 1

@@ -38,6 +38,9 @@ class AvatarDataset(Dataset):
         template_path: str = "models/avatar_template.ply",
         transform: Optional[Any] = None,
     ):
+        # Test mode
+        self.test_mode = True
+
         self.root = root
         self.proc_side = int(proc_side)
         self.template_path = template_path
@@ -67,9 +70,12 @@ class AvatarDataset(Dataset):
         # Image
         img = Image.open(rec["image_path"]).convert("RGB")
         img = img.resize((self.proc_side, self.proc_side), Image.BILINEAR)
-        img_tensor = torch.from_numpy(np.array(img).astype(np.float32) / 255.0).permute(
+        img_arr = np.array(img)
+        img_tensor = torch.from_numpy(img_arr.astype(np.float32) / 255.0).permute(
             2, 0, 1
         )
+        # Also provide a uint8 copy for detectors that expect byte inputs
+        img_uint8 = torch.from_numpy(img_arr.astype(np.uint8)).permute(2, 0, 1)
         if self.transform is not None:
             img_tensor = self.transform(img_tensor)
 
@@ -123,6 +129,7 @@ class AvatarDataset(Dataset):
 
         out: Dict[str, Any] = {
             "image": img_tensor,
+            "image_uint8": img_uint8,
             "intrinsics": K_t,
             "path": rec["image_path"],
         }
@@ -206,6 +213,11 @@ class AvatarDataset(Dataset):
                         ),
                     }
                 )
+
+        # If in test mode, limit records to the first 5 examples to speed up iteration
+        if getattr(self, "test_mode", False):
+            if len(self._records) > 5:
+                self._records = self._records[:5]
 
         return found
 

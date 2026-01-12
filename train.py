@@ -31,7 +31,7 @@ def main():
         ],
     )
     logger = logging.getLogger("train")
-
+    logger.info("\n\n")
     logger.info("Starting training script")
     # Arg parsing
     parser = argparse.ArgumentParser(description="NLF-GS Training Scaffold")
@@ -40,8 +40,8 @@ def main():
     cfg = load_config(args.config)
     logger.info(f"Loaded config: {args.config}")
 
-    # Set device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # Force device to be on cpu
+    device = torch.device("cpu")
     logger.info(f"Using device: {device}")
 
     # Build datamodule
@@ -50,15 +50,36 @@ def main():
     logger.info("DataModule setup complete")
 
     # Import nlf model
+    # Load TorchScript model; force it to the chosen device
     nlf_checkpoint = torch.jit.load(
         cfg["nlf"]["checkpoint_path"], map_location=device
     ).eval()
+    try:
+        nlf_checkpoint.to(device)
+    except Exception:
+        # Some TorchScript modules may not implement .to(); that's okay
+        raise RuntimeError("NLF model does not support .to() method.")
+
+    # Log a small sanity-check about model param device/dtype (works with ScriptModule state_dict)
+    try:
+        sd = nlf_checkpoint.state_dict()
+        first_tensor = next(iter(sd.values()))
+        logger.info(
+            f"NLF checkpoint params -> device={first_tensor.device}, dtype={first_tensor.dtype}"
+        )
+    except Exception as _e:
+        logger.info(
+            "Could not introspect NLF checkpoint state_dict for device/dtype check"
+        )
+
     backbone = NLFBackboneAdapter(nlf_checkpoint)
     logger.info("NLF Backbone Adapter initialized")
 
     # Infer backbone feature dimensionality from a sample batch
     sample = next(iter(dm.train_dataloader()))
     sample_img = sample["image"]  # (B,3,H,W)
+    # move sample to same device as the NLF model
+    sample_img = sample_img.to(device)
     logger.info(f"Sample image tensor shape: {tuple(sample_img.shape)}")
     with torch.no_grad():
         feats = backbone.extract_feature_map(
@@ -83,7 +104,10 @@ def main():
     logger.info(f"Training for max_epochs={max_epochs}")
 
     trainer = L.Trainer(
-        max_epochs=max_epochs, devices=1, accelerator="auto", logger=False
+        max_epochs=max_epochs,
+        devices=int(cfg.get("trainer", {}).get("devices", 1)),
+        accelerator=cfg.get("trainer", {}).get("accelerator", "cpu"),
+        logger=False,
     )
     logger.info("Beginning trainer.fit()")
     trainer.fit(module, datamodule=dm)

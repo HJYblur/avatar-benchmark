@@ -19,9 +19,10 @@ class AvatarGaussianEstimator(nn.Module):
         return self._avatar
 
     def compute_gaussian_coord2d(self, feature_map, pred):
-        """Batched per-gaussian 2D centers.
+        """The function maps predicted 2d coordinates to batched per-gaussian 2D centers.
 
-        Assumes at most 1 person per image; handles v2d shapes (B,P,Nv,2) | (B,Nv,2) | (Nv,2).
+        Assumes at most 1 person per image;
+        handles v2d(list) with elements of shape (P,Nv,2).
 
         Returns:
             Tensor of shape (B, N, 2) with Gaussian centers.
@@ -35,13 +36,10 @@ class AvatarGaussianEstimator(nn.Module):
         parents = self._avatar.parents  # (N,3)
         bary = self._avatar.barycentric_coords  # (K,3)
 
-        v2d = pred["vertices2d"]
-        assert (
-            v2d.dim() == 4
-        ), f"Expected pred['vertices2d'] to have shape (B,P,Nv,2), got {v2d.shape}"
-
         # TODO(future): handle multiple people per image
-        vertices2d = v2d[:, 0]  # Assume only 1 person, get (B, Nv, 2)
+        v2d_list = pred["vertices2d"]  # A list of length B with (P, Nv, 2)
+        vertices2d = torch.stack([v2d_raw[0] for v2d_raw in v2d_list], dim=0)
+        assert vertices2d.shape[0] == B, "Batch size mismatch in vertices2d"
 
         device = feature_map.device
 
@@ -75,14 +73,11 @@ class AvatarGaussianEstimator(nn.Module):
         parents = self._avatar.parents  # (N,3)
         bary = self._avatar.barycentric_coords  # (K,3)
 
-        v3d = pred["vertices3d"]
-        # Support shapes: (B,P,Nv,3), (B,Nv,3), or (Nv,3)
-        if v3d.dim() == 4:
-            vertices3d = v3d[:, 0]  # assume single person -> (B, Nv, 3)
-        elif v3d.dim() == 3:
-            vertices3d = v3d  # (B, Nv, 3)
-        else:
-            vertices3d = v3d.unsqueeze(0).expand(B, -1, -1)  # (B, Nv, 3)
+        v3d_list = pred["vertices3d"]
+        vertices3d = torch.stack(
+            [v3d_raw[0] for v3d_raw in v3d_list], dim=0
+        )  # Assume only 1 person, get (B, Nv, 3)
+        assert vertices3d.shape[0] == B, "Batch size mismatch in vertices3d"
 
         device = feature_map.device
 
@@ -115,10 +110,20 @@ class AvatarGaussianEstimator(nn.Module):
         centers2d = self.compute_gaussian_coord2d(feature_map, pred)  # (B,N,2)
         B, C, H, W = feature_map.shape
 
+        # Ensure centers and sampling grid match feature_map dtype/device (important
+        # when the backbone runs in float16). Cast centers to feature_map dtype
+        # before normalization so grid_sample receives matching dtypes.
+        centers2d = centers2d.to(device=feature_map.device, dtype=feature_map.dtype)
+
         # Normalize to [-1,1]
         x = centers2d[..., 0] / (W - 1) * 2 - 1  # (B,N)
         y = centers2d[..., 1] / (H - 1) * 2 - 1  # (B,N)
         grid = torch.stack([x, y], dim=-1).unsqueeze(1)  # (B,1,N,2)
+
+        # grid_sample requires input and grid to have the same dtype; ensure that
+        # here (especially important when feature_map is float16).
+        if grid.dtype != feature_map.dtype:
+            grid = grid.to(dtype=feature_map.dtype)
 
         sampled = F.grid_sample(
             feature_map,  # (B,C,H,W)

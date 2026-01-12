@@ -56,13 +56,36 @@ class Trainer(L.LightningModule):
         B = image.shape[0]
         H = image.shape[-2]
         W = image.shape[-1]
-        feats, preds = self.backbone.detect_with_features(image, use_half=True)
+
+        # Use image feature (float32/float16) for feature extraction
+        # Use the original int image: `detect_input` for prediction ops.
+        detect_input = image
+        if isinstance(batch, dict) and "image_uint8" in batch:
+            detect_input = batch["image_uint8"]
+
+        feats, preds = self.backbone.detect_with_features(
+            image_feature=image, frame_batch=detect_input, use_half=True
+        )
+
+        # --- Debug: save a sample image ---
+        try:
+            # Save the first sample image to disk for visual inspection.
+            # Import locally to avoid top-level dependency changes.
+            from torchvision.utils import save_image
+
+            sample_img = image[0].detach().cpu()
+            # Clamp in case image values are slightly out of [0,1]
+            save_image(sample_img.clamp(0.0, 1.0), "debug_sample.png")
+            print("[trainer] Saved input sample to debug_sample.png")
+        except Exception as exc:  # pragma: no cover - debugging helper
+            print(f"[trainer] Unable to save sample image: {exc}")
+        # --- end debug ---
 
         B_feats, C_local, Hf, Wf = feats.shape
         assert B == B_feats, "Batch size mismatch between image and features"
         N = int(self.template.total_gaussians_num)
 
-        z_id = self.identity_encoder(feature_map=feats, preds=preds, img_shape=(H, W))
+        # z_id = self.identity_encoder(feature_map=feats, preds=preds, img_shape=(H, W))
 
         local_feats = self.avatar_estimator.feature_sample(
             feats, preds
@@ -77,10 +100,14 @@ class Trainer(L.LightningModule):
         gaussian_params: Gaussian Params(B, N, C_params)
         """
 
-        z_expanded = z_id.unsqueeze(1).expand(-1, N, -1)  # (B, D) -> (B, N, D)
+        # z_expanded = z_id.unsqueeze(1).expand(-1, N, -1)  # (B, D) -> (B, N, D)
+        # combined_feats = torch.cat(
+        #     [z_expanded, local_feats, coord3d], dim=-1
+        # )  # (B, N, D + C_local + 3)
+
         combined_feats = torch.cat(
-            [z_expanded, local_feats, coord3d], dim=-1
-        )  # (B, N, D + C_local + 3)
+            [local_feats, coord3d], dim=-1
+        )  # (B, N, C_local + 3)
 
         gaussian_params = self.decoder(combined_feats)
 
