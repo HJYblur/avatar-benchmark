@@ -23,13 +23,21 @@ def load_h5py(fpath):
 
 
 def process_people_snapshot(
-    root: str | Path | None, subject: str, outdir: str | Path | None = None
+    root: str | Path | None,
+    subject: str,
+    outdir: str | Path | None = None,
+    use_mask: bool = False,
+    save_mask: bool = True,
 ):
     """Process a PeopleSnapshot subject and dump cameras, images, masks and poses.
 
-    Defaults:
-      - If `root` is None, assume repository root/data/ (calling file parent parents) as data root.
-      - If `outdir` is None, write to repository root/processed/<subject>/.
+    out = process_people_snapshot(
+        args.root,
+        args.subject,
+        os.path.join(args.outdir, args.subject),
+        use_mask=args.use_mask,
+        save_mask=args.save_mask,
+    )
 
     Returns the output directory Path on success.
     """
@@ -90,6 +98,16 @@ def process_people_snapshot(
         camera_path.replace(".npz", ".pt"),
     )
 
+    # load masks (we load early so we can optionally apply them when saving images)
+    masks = None
+    masks_path = os.path.join(dirpath, "masks.hdf5")
+    if os.path.exists(masks_path):
+        try:
+            masks = np.asarray(load_h5py(masks_path)["masks"]).astype(np.uint8)
+            print(f"Loaded {len(masks)} masks from {masks_path}")
+        except Exception:
+            masks = None
+
     # load images
     image_dir = os.path.join(outdir, "images")
     os.makedirs(image_dir, exist_ok=True)
@@ -105,28 +123,57 @@ def process_people_snapshot(
             if not ok:
                 break
             frame = cv2.undistort(frame, K, dist_coeffs)
+            # optionally apply mask to cover background
+            if use_mask and masks is not None and i < masks.shape[0]:
+                try:
+                    mask = masks[i]
+                    # create a smoothed alpha like in the mask saving step
+                    alpha = (mask * 255).astype(np.uint8)
+                    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+                    alpha = cv2.erode(alpha, kernel)
+                    alpha = cv2.blur(alpha, (3, 3))
+                    if alpha.ndim == 2 and frame.ndim == 3:
+                        alpha3 = np.stack([alpha] * frame.shape[2], axis=2)
+                    else:
+                        alpha3 = alpha
+                    # set background to pure white where mask is zero
+                    mask_f = alpha3.astype(np.float32) / 255.0
+                    frame = (
+                        frame.astype(np.float32) * mask_f + 255.0 * (1.0 - mask_f)
+                    ).astype(np.uint8)
+                except Exception:
+                    # fallback: write unmasked frame
+                    pass
             cv2.imwrite(img_path, frame)
     else:
         print(f"No video file {video_file} found — skipping image extraction")
 
-    # load masks
-    mask_dir = os.path.join(outdir, "masks")
-    os.makedirs(mask_dir, exist_ok=True)
+    # write masks to disk (optional)
+    if save_mask:
+        mask_dir = os.path.join(outdir, "masks")
+        os.makedirs(mask_dir, exist_ok=True)
 
-    print("Write mask to", mask_dir)
-    masks = np.asarray(load_h5py(os.path.join(dirpath, "masks.hdf5"))["masks"]).astype(
-        np.uint8
-    )
-    for i, mask in enumerate(tqdm.tqdm(masks)):
-        mask_path = os.path.join(mask_dir, f"mask_{i:04d}.png")
-        mask = cv2.undistort(mask, K, dist_coeffs)
+        print("Write mask to", mask_dir)
+        # use already-loaded masks if available
+        if masks is None:
+            if os.path.exists(masks_path):
+                masks = np.asarray(load_h5py(masks_path)["masks"]).astype(np.uint8)
+            else:
+                masks = None
 
-        # remove boundary artifact
-        alpha = mask * 255
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
-        alpha = cv2.erode(alpha, kernel)
-        alpha = cv2.blur(alpha, (3, 3))
-        cv2.imwrite(mask_path, alpha)
+        if masks is not None:
+            for i, mask in enumerate(tqdm.tqdm(masks)):
+                mask_path = os.path.join(mask_dir, f"mask_{i:04d}.png")
+                mask = cv2.undistort(mask, K, dist_coeffs)
+
+                # remove boundary artifact
+                alpha = mask * 255
+                kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 5))
+                alpha = cv2.erode(alpha, kernel)
+                alpha = cv2.blur(alpha, (3, 3))
+                cv2.imwrite(mask_path, alpha)
+        else:
+            print(f"No masks found at {masks_path} — skipping mask saving")
 
     smpl_params = load_h5py(os.path.join(dirpath, "reconstructed_poses.hdf5"))
     smpl_params = {
@@ -165,10 +212,28 @@ if __name__ == "__main__":
         default=None,
         help="path to output (defaults to repository 'processed')",
     )
+    parser.add_argument(
+        "--use_mask",
+        action="store_true",
+        default=True,
+        help="If set, images will be saved with masks applied (background covered).",
+    )
+    # single flag to control whether mask PNGs get saved (default True)
+    parser.add_argument(
+        "--save_mask",
+        action="store_true",
+        default=False,
+        help="Save mask PNGs to the output folder (default).",
+    )
+
     args = parser.parse_args()
 
     os.makedirs(args.outdir, exist_ok=True)
     out = process_people_snapshot(
-        args.root, args.subject, os.path.join(args.outdir, args.subject)
+        args.root,
+        args.subject,
+        os.path.join(args.outdir, args.subject),
+        use_mask=args.use_mask,
+        save_mask=args.save_mask,
     )
     print("Processed to:", out)
