@@ -18,7 +18,7 @@ class AvatarGaussianEstimator(nn.Module):
     def template(self) -> AvatarTemplate:
         return self._avatar
 
-    def compute_gaussian_coord2d(self, feature_map, pred):
+    def compute_gaussian_coord2d(self, feature_map, pred, img_shape: tuple = None):
         """The function maps predicted 2d coordinates to batched per-gaussian 2D centers.
 
         Assumes at most 1 person per image;
@@ -56,6 +56,9 @@ class AvatarGaussianEstimator(nn.Module):
 
         centers2d = torch.einsum("bnvc, nv->bnc", face_verts, bary_per_gauss)
 
+        # centers2d are in pixel coordinates (x,y) relative to the original image
+        # Return them unchanged; caller (feature_sample) will normalize using the
+        # original image shape so grid_sample receives correct coordinates.
         return centers2d  # (B,N,2)
 
     def compute_gaussian_coord3d(self, feature_map, pred):
@@ -101,23 +104,36 @@ class AvatarGaussianEstimator(nn.Module):
 
         return centers3d  # (B,N,3)
 
-    def feature_sample(self, feature_map, pred):
+    def feature_sample(self, feature_map, pred, img_shape: tuple = None):
         # TODO: Add occlusion handling using coord3d
         """Sample per-Gaussian local features from a feature map (batched).
 
         Returns: (B, N, C)
         """
-        centers2d = self.compute_gaussian_coord2d(feature_map, pred)  # (B,N,2)
-        B, C, H, W = feature_map.shape
+        centers2d = self.compute_gaussian_coord2d(
+            feature_map, pred, img_shape=img_shape
+        )
 
-        # Ensure centers and sampling grid match feature_map dtype/device (important
-        # when the backbone runs in float16). Cast centers to feature_map dtype
-        # before normalization so grid_sample receives matching dtypes.
+        B, C, Hf, Wf = feature_map.shape
+
+        # Ensure centers are on the same device/dtype as the feature map
         centers2d = centers2d.to(device=feature_map.device, dtype=feature_map.dtype)
 
-        # Normalize to [-1,1]
-        x = centers2d[..., 0] / (W - 1) * 2 - 1  # (B,N)
-        y = centers2d[..., 1] / (H - 1) * 2 - 1  # (B,N)
+        # Determine original image size to normalize coordinates. If not provided,
+        # fall back to assuming the feature map was produced from an image with
+        # same spatial dims (not ideal but backward compatible).
+        if img_shape is not None:
+            H_img, W_img = int(img_shape[0]), int(img_shape[1])
+        else:
+            # Approximate by scaling from feature map to image space
+            H_img, W_img = Hf, Wf
+
+        # Convert pixel coordinates in image space -> normalized grid in [-1,1]
+        # Note: using image size here correctly maps original-image pixels into
+        # normalized coordinates compatible with feature_map sampling because of
+        # the proportional scaling between image and feature map.
+        x = centers2d[..., 0] / (W_img - 1) * 2 - 1  # (B,N)
+        y = centers2d[..., 1] / (H_img - 1) * 2 - 1  # (B,N)
         grid = torch.stack([x, y], dim=-1).unsqueeze(1)  # (B,1,N,2)
 
         # grid_sample requires input and grid to have the same dtype; ensure that

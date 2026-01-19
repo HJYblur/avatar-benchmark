@@ -81,14 +81,22 @@ class Trainer(L.LightningModule):
             print(f"[trainer] Unable to save sample image: {exc}")
         # --- end debug ---
 
+        """
+        Encode:
+        z_id: Identity Latent Vector (B, D)
+        local_feats: Local Features sampled at Gaussian centers (B, N, C_local)
+        coord3d: Gaussian 3D Coordinates (B, N, 3)
+        """
         B_feats, C_local, Hf, Wf = feats.shape
         assert B == B_feats, "Batch size mismatch between image and features"
         N = int(self.template.total_gaussians_num)
 
-        # z_id = self.identity_encoder(feature_map=feats, preds=preds, img_shape=(H, W))
+        z_id = self.identity_encoder(feature_map=feats)
+        print(f"[trainer] Identity latent vector z_id shape: {z_id.shape}")
 
+        # Pass original image size so gaussian coord normalization uses image pixels
         local_feats = self.avatar_estimator.feature_sample(
-            feats, preds
+            feats, preds, img_shape=(H, W)
         )  # (B, N, C_local)
 
         coord3d = self.avatar_estimator.compute_gaussian_coord3d(
@@ -113,7 +121,7 @@ class Trainer(L.LightningModule):
 
         # Reconstruct/render TODO handled elsewhere: scales/rots/alpha parameterization and losses to be added.
 
-        loss = gaussian_params.sum() * 0.0
+        loss = tensor(0.0, device=image.device)
         return loss
 
     def configure_optimizers(self):

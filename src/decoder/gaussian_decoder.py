@@ -31,3 +31,7 @@ class GaussianDecoder(nn.Module):
         # TODO[run-pipeline]: Split the output head into named fields and apply appropriate
         #   parameterizations, e.g., scales=exp(), rotation=normalize_quat(), alpha=sigmoid(), sh=tanh().
         return self.mlp(x)
+
+    @property
+    def in_dim(self):
+        return self.mlp[0].in_features

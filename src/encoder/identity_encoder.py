@@ -10,43 +10,31 @@ class IdentityEncoder(nn.Module):
     The output is a latent vector of specified dimension.
     """
 
-    def __init__(self, backbone_feat_dim, latent_dim, mask=None):
+    def __init__(self, backbone_feat_dim, latent_dim):
         super().__init__()
         self.backbone_feat_dim = backbone_feat_dim
         self.latent_dim = latent_dim
-        # TODO(Optional): Masked pooling using coord2d to extract only foreground avatar features
-        self.mask = mask
-        self.fc = nn.Linear(backbone_feat_dim, latent_dim)
+        # keep the linear layer in fp16 to save memory / operate in half precision
+        self.fc = nn.Linear(backbone_feat_dim, latent_dim).half()
 
-    def forward(self, feature_map, preds, img_shape):
-        # Feat: Use sampled features from the feature map to pool identity features, the sampling grid is based on the 2D non-param vertex coords
-        non_vertex_coords2d = preds["non_vertex_coords2d"][
-            :, 0
-        ]  # (B, Nv, 2), Nv = 1024
-        sampled_feats = self.grid_sample(
-            feature_map, non_vertex_coords2d, img_shape
-        )  # (B, Nv, C)
-        pooled_feats = sampled_feats.mean(dim=1)  # (B, C)
-        z_id = self.fc(pooled_feats)  # (B, latent_dim)
+    def forward(self, feature_map):
+        # Pool feature map to get global features
+        B, C, Hf, Wf = feature_map.shape
+        pooled_feats = torch.mean(feature_map, dim=(2, 3))  # (B, C)
+
+        # Ensure pooled features are the same dtype as the linear layer (fc)
+        fc_dtype = self.fc.weight.dtype
+        assert (
+            pooled_feats.dtype == fc_dtype
+        ), f"Feature map dtype {pooled_feats.dtype} does not match fc layer dtype {fc_dtype}"
+
+        batched_z_id = self.fc(pooled_feats)  # (B, latent_dim)
+
+        # TODO(Optional): Use EMA to stabilize identity encoding across batches
+
+        # Use the mean of the batched_z_id as the final identity latent vector per identity,
+        # but still returns as a batch of size B for compatibility
+        z_id = batched_z_id.mean(dim=0)
+        z_id = z_id.unsqueeze(0).expand(B, -1)  # (B, latent_dim)
+
         return z_id  # (B, latent_dim)
-
-    def grid_sample(self, feature_map, coord2d, img_shape):
-        """Sample features from the feature map using 2D coordinates.
-
-        coord2d: (B, Nv, 2) in pixel space
-        Returns: (B, Nv, C_local)
-        """
-        H, W = img_shape
-        # Normalize to [-1, 1]
-        x = coord2d[..., 0] / (W - 1) * 2 - 1  # (B, Nv), normalized to [-1,1]
-        y = coord2d[..., 1] / (H - 1) * 2 - 1  # (B, Nv), normalized to [-1,1]
-        grid = torch.stack([x, y], dim=-1).unsqueeze(1)  # (B, 1, Nv, 2)
-
-        sampled = torch.nn.functional.grid_sample(
-            feature_map,  # (B, C, Hf, Wf)
-            grid,  # (B, 1, Nv, 2)
-            mode="bilinear",
-            align_corners=True,
-        )  # (B, C, 1, Nv)
-
-        return sampled[:, :, 0, :].permute(0, 2, 1)  # (B, Nv, C_local)

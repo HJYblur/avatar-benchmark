@@ -49,6 +49,13 @@ def main():
     dm.setup("fit")
     logger.info("DataModule setup complete")
 
+    # Infer backbone feature dimensionality from a sample batch
+    sample = next(iter(dm.train_dataloader()))
+    sample_img = sample["image"]  # (B,3,H,W)
+    # move sample to same device as the NLF model
+    sample_img = sample_img.to(device)
+    logger.info(f"Sample image tensor shape: {tuple(sample_img.shape)}")
+
     # Import nlf model
     # Load TorchScript model; force it to the chosen device
     nlf_checkpoint = torch.jit.load(
@@ -72,27 +79,19 @@ def main():
             "Could not introspect NLF checkpoint state_dict for device/dtype check"
         )
 
+    # Backbone Adapter Initialization
     backbone = NLFBackboneAdapter(nlf_checkpoint)
     logger.info("NLF Backbone Adapter initialized")
+    c_local = int(cfg["nlf"].get("latent_dim", 512))
+    logger.info(f"Backbone feature map channels: {c_local}")
 
-    # Infer backbone feature dimensionality from a sample batch
-    sample = next(iter(dm.train_dataloader()))
-    sample_img = sample["image"]  # (B,3,H,W)
-    # move sample to same device as the NLF model
-    sample_img = sample_img.to(device)
-    logger.info(f"Sample image tensor shape: {tuple(sample_img.shape)}")
-    with torch.no_grad():
-        feats = backbone.extract_feature_map(
-            sample_img, use_half=bool(cfg.get("nlf", {}).get("use_half", True))
-        )
-    c_local = int(feats.shape[1])
-    logger.info(
-        f"Backbone feature map channels: {c_local}, feat shape: {tuple(feats.shape)}"
-    )
-
-    id_latent_dim = int(cfg["identity_encoder"]["latent_dim"])
+    # Identity Encoder Initialization
+    id_latent_dim = int(cfg["identity_encoder"].get("latent_dim", 64))
     id_encoder = IdentityEncoder(backbone_feat_dim=c_local, latent_dim=id_latent_dim)
-    decoder = GaussianDecoder(in_dim=(id_latent_dim + c_local + 3))
+
+    # Decoder Initialization
+    decoder = GaussianDecoder(in_dim=(c_local + 3))  # local feature dim + coord3d dim
+    logger.info(f"Decoder input dimension: {decoder.in_dim}")  # 512 + 3 = 515
 
     module = Trainer(
         backbone_adapter=backbone,
