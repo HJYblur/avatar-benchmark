@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import cv2
-from src.utils.config import get as get_cfg
+from avatar_utils.config import get as get_cfg
 
 
 class IdentityEncoder(nn.Module):

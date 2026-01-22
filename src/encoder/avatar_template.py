@@ -4,8 +4,8 @@ import numpy as np
 import torch
 
 # Import from the shared utils under the src root
-from src.utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
-from src.utils.config import get as get_cfg
+from avatar_utils.ply_loader import load_ply, save_ply, matrix_to_quaternion
+from avatar_utils.config import get as get_cfg
 
 
 class GaussianData:

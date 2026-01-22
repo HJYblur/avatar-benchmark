@@ -88,29 +88,21 @@ class NLFBackboneAdapter:
         # TODO[run-pipeline]: If using a TorchScript multiperson model, wrap its call and map outputs
         #   to the same dict keys expected downstream (e.g., vertices2d, vertices3d, *_nonparam).
 
-        # The NLF scripted detector often expects integer image tensors (e.g. uint8).
+        # The NLF scripted detector often expects integer image tensors.
         # If the provided frame_batch is floating point (our datasets return floats
-        # in [0,1]), convert to uint8 by scaling by 255. Try uint8 first and fall
-        # back to int8 if the scripted module complains about dtype.
-        frame_for_detect = frame_batch
-        try:
-            if frame_for_detect.dtype.is_floating_point:
-                # Scale floats in [0,1] -> [0,255] and convert to uint8
-                frame_for_detect = (
-                    (frame_for_detect * 255.0).round().clamp(0, 255).to(torch.uint8)
-                )
+        # in [0,1]), convert to uint8 by scaling by 255.
 
-            preds = self.nlf_model.detect_smpl_batched(
-                frame_for_detect, model_name=model_name, **kwargs
-            )
-        except RuntimeError as re_err:
-            # If the scripted model rejects uint8, try signed int8 as a fallback.
-            try:
-                frame_fallback = frame_for_detect.to(torch.int8)
-                preds = self.nlf_model.detect_smpl_batched(
-                    frame_fallback, model_name=model_name, **kwargs
-                )
-            except Exception:
-                # Re-raise the original runtime error to surface the problem.
-                raise re_err
+        if frame_batch.dtype.is_floating_point:
+            # Scale floats in [0,1] -> [0,255] and convert to uint8
+            frame_batch = (frame_batch * 255.0).round().clamp(0, 255).to(torch.uint8)
+
+        preds = self.nlf_model.detect_smpl_batched(
+            frame_batch, model_name=model_name, **kwargs
+        )
+
+        # Check if the dytpe is float16, then convert to float32
+        if feature_map.dtype == torch.float16:
+            feature_map = feature_map.float()
+        if preds.dtype == torch.float16:
+            preds = preds.float()
         return feature_map, preds

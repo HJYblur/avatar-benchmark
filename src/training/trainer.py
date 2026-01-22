@@ -8,6 +8,7 @@ from encoder.gaussian_estimator import AvatarGaussianEstimator
 from encoder.identity_encoder import IdentityEncoder
 from encoder.avatar_template import AvatarTemplate
 from decoder.gaussian_decoder import GaussianDecoder
+from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 
 
 class Trainer(L.LightningModule):
@@ -63,6 +64,31 @@ class Trainer(L.LightningModule):
         if isinstance(batch, dict) and "image_uint8" in batch:
             detect_input = batch["image_uint8"]
 
+        # feats_path = "debug_backbone_features.pt"
+        # preds_path = "debug_backbone_preds.pt"
+        # if feats_path is not None and preds_path is not None:
+        #     try:
+        #         # Try to load precomputed features and preds for faster debugging
+        #         feats = torch.load(feats_path, map_location=image.device)
+        #         preds = torch.load(preds_path, map_location=image.device)
+        #         print(
+        #             f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
+        #         )
+        #     except Exception as exc:
+        #         print(
+        #             f"[trainer] Unable to load precomputed features/preds: {exc}. Running backbone inference."
+        #         )
+        #         feats, preds = self.backbone.detect_with_features(
+        #             image_feature=image, frame_batch=detect_input, use_half=True
+        #         )
+        # else:
+
+        #     torch.save(feats, feats_path)
+        #     torch.save(preds, preds_path)
+        #     print(
+        #         f"[trainer] Saved backbone features to {feats_path} and preds to {preds_path}"
+        #     )
+
         feats, preds = self.backbone.detect_with_features(
             image_feature=image, frame_batch=detect_input, use_half=True
         )
@@ -91,7 +117,7 @@ class Trainer(L.LightningModule):
         assert B == B_feats, "Batch size mismatch between image and features"
         N = int(self.template.total_gaussians_num)
 
-        z_id = self.identity_encoder(feature_map=feats)
+        z_id = self.identity_encoder(feature_map=feats)  # (B, D)
         print(f"[trainer] Identity latent vector z_id shape: {z_id.shape}")
 
         # Pass original image size so gaussian coord normalization uses image pixels
@@ -105,28 +131,31 @@ class Trainer(L.LightningModule):
 
         """
         Decode:
-        gaussian_params: Gaussian Params(B, N, C_params)
+        gaussian_params: Fused gaussian Params(N, C_params)
         """
-
-        # z_expanded = z_id.unsqueeze(1).expand(-1, N, -1)  # (B, D) -> (B, N, D)
-        # combined_feats = torch.cat(
-        #     [z_expanded, local_feats, coord3d], dim=-1
-        # )  # (B, N, D + C_local + 3)
 
         combined_feats = torch.cat(
             [local_feats, coord3d], dim=-1
         )  # (B, N, C_local + 3)
 
-        gaussian_params = self.decoder(combined_feats)
+        gaussian_params = self.decoder(combined_feats, z_id)  # Fused output
 
-        # Reconstruct/render TODO handled elsewhere: scales/rots/alpha parameterization and losses to be added.
+        # Debug check:
+        for k, v in gaussian_params.items():
+            print(f"[trainer] Decoded gaussian_params[{k}] shape: {v.shape}")
 
-        loss = tensor(0.0, device=image.device)
+        # Use gaussian_params and gaussian avatar to generate a .ply file as the reconstruction.
+        reconstruct_gaussian_avatar_as_ply(
+            gaussian_params=gaussian_params,
+            template=self.template,
+            output_path="debug_reconstructed_avatar.ply",
+        )
+
+        # TODO[run-pipeline]: Add render and implement proper loss computation
+        loss = torch.tensor(0.0, device=image.device)
         return loss
 
     def configure_optimizers(self):
         # TODO[run-pipeline]: Expose LR and optimizer choice via config; add scheduler if needed.
         optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
-
-    # Provide dataloader from an external DataModule or Trainer.fit call

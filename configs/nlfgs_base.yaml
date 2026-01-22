@@ -30,6 +30,12 @@ avatar:
       - [0.2, 0.2, 0.6]
       - [0.3333333333, 0.3333333333, 0.3333333333]
 
+
+decoder:
+  in_dim: 515  # local feature dim + 3D coord dim
+  hidden: 256
+  out_dim: 11
+
 train:
   accelerator: cpu
   batch_size: 2

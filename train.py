@@ -14,7 +14,7 @@ from src.encoder.nlf_backbone_adapter import NLFBackboneAdapter
 from src.encoder.identity_encoder import IdentityEncoder
 from src.decoder.gaussian_decoder import GaussianDecoder
 from src.training.trainer import Trainer
-from src.utils.config import load_config
+from src.avatar_utils.config import load_config
 
 
 def main():
@@ -90,8 +90,8 @@ def main():
     id_encoder = IdentityEncoder(backbone_feat_dim=c_local, latent_dim=id_latent_dim)
 
     # Decoder Initialization
-    decoder = GaussianDecoder(in_dim=(c_local + 3))  # local feature dim + coord3d dim
-    logger.info(f"Decoder input dimension: {decoder.in_dim}")  # 512 + 3 = 515
+    decoder = GaussianDecoder()  # local feature dim + coord3d dim
+    logger.info(f"Decoder Initialized.")  # 512 + 3 = 515
 
     module = Trainer(
         backbone_adapter=backbone,
