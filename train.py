@@ -97,6 +97,7 @@ def main():
         backbone_adapter=backbone,
         identity_encoder=id_encoder,
         decoder=decoder,
+        train_decoder_only=True,
     )
 
     max_epochs = int(cfg["train"]["epochs"]) if "train" in cfg else 1

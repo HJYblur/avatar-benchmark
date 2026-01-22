@@ -1,5 +1,5 @@
 from typing import Any, Dict, Optional
-
+import os
 import torch
 from torch.utils.data import DataLoader
 import lightning as L
@@ -25,6 +25,7 @@ class Trainer(L.LightningModule):
         backbone_adapter: NLFBackboneAdapter,
         identity_encoder: IdentityEncoder,
         decoder: GaussianDecoder,
+        train_decoder_only: bool = True,
     ):
         super().__init__()
         # Keep the AvatarTemplate instance (it loads its internal avatar on init)
@@ -33,6 +34,11 @@ class Trainer(L.LightningModule):
         self.avatar_estimator = AvatarGaussianEstimator(self.template)
         self.identity_encoder = identity_encoder
         self.decoder = decoder
+        # If True, freeze all parameters except the decoder's so only decoder gets updated.
+        self.train_decoder_only = train_decoder_only
+
+        if self.train_decoder_only:
+            self.identity_encoder.eval()
         # TODO[run-pipeline]: Add args/config to control optimizer, lr, loss weights, renderer, etc.
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
@@ -64,34 +70,28 @@ class Trainer(L.LightningModule):
         if isinstance(batch, dict) and "image_uint8" in batch:
             detect_input = batch["image_uint8"]
 
-        # feats_path = "debug_backbone_features.pt"
-        # preds_path = "debug_backbone_preds.pt"
-        # if feats_path is not None and preds_path is not None:
-        #     try:
-        #         # Try to load precomputed features and preds for faster debugging
-        #         feats = torch.load(feats_path, map_location=image.device)
-        #         preds = torch.load(preds_path, map_location=image.device)
-        #         print(
-        #             f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
-        #         )
-        #     except Exception as exc:
-        #         print(
-        #             f"[trainer] Unable to load precomputed features/preds: {exc}. Running backbone inference."
-        #         )
-        #         feats, preds = self.backbone.detect_with_features(
-        #             image_feature=image, frame_batch=detect_input, use_half=True
-        #         )
-        # else:
+        feats_path = "debug_backbone_features.pt"
+        preds_path = "debug_backbone_preds.pt"
+        if os.path.exists(feats_path) and os.path.exists(preds_path):
+            # Try to load precomputed features and preds for faster debugging
+            feats = torch.load(feats_path, map_location=image.device)
+            preds = torch.load(preds_path, map_location=image.device)
+            print(
+                f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
+            )
+        else:
+            feats, preds = self.backbone.detect_with_features(
+                image_feature=image, frame_batch=detect_input, use_half=True
+            )
+            torch.save(feats, feats_path)
+            torch.save(preds, preds_path)
+            print(
+                f"[trainer] Saved backbone features to {feats_path} and preds to {preds_path}"
+            )
 
-        #     torch.save(feats, feats_path)
-        #     torch.save(preds, preds_path)
-        #     print(
-        #         f"[trainer] Saved backbone features to {feats_path} and preds to {preds_path}"
-        #     )
-
-        feats, preds = self.backbone.detect_with_features(
-            image_feature=image, frame_batch=detect_input, use_half=True
-        )
+        # feats, preds = self.backbone.detect_with_features(
+        #     image_feature=image, frame_batch=detect_input, use_half=True
+        # )
 
         # --- Debug: save a sample image ---
         try:
@@ -147,15 +147,36 @@ class Trainer(L.LightningModule):
         # Use gaussian_params and gaussian avatar to generate a .ply file as the reconstruction.
         reconstruct_gaussian_avatar_as_ply(
             gaussian_params=gaussian_params,
-            template=self.template,
+            template=self.template.load_avatar_template(mode="test"),
             output_path="debug_reconstructed_avatar.ply",
         )
 
         # TODO[run-pipeline]: Add render and implement proper loss computation
-        loss = torch.tensor(0.0, device=image.device)
+
+        # Use a tiny L2 regularization loss on the decoder parameters so the
+        # returned loss has a gradient graph and optimizer can step.
+        # Ensure there is at least one trainable param in decoder when
+        # training only the decoder.
+        has_trainable = any(p.requires_grad for p in self.decoder.parameters())
+        if getattr(self, "train_decoder_only", False) and not has_trainable:
+            raise RuntimeError(
+                "train_decoder_only=True but decoder has no trainable parameters"
+            )
+
+        reg_loss = torch.tensor(0.0, device=image.device)
+        for p in self.decoder.parameters():
+            # accumulate squared L2 norm
+            reg_loss = reg_loss + p.pow(2).sum()
+        # scale down the regularizer so it doesn't dominate when a real loss is used
+        loss = reg_loss * 1e-6
         return loss
 
     def configure_optimizers(self):
         # TODO[run-pipeline]: Expose LR and optimizer choice via config; add scheduler if needed.
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-4)
+        lr = 1e-4
+        if getattr(self, "train_decoder_only", False):
+            # Only update decoder parameters
+            optimizer = torch.optim.Adam(self.decoder.parameters(), lr=lr)
+        else:
+            optimizer = torch.optim.Adam(self.parameters(), lr=lr)
         return optimizer

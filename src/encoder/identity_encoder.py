@@ -14,8 +14,7 @@ class IdentityEncoder(nn.Module):
         super().__init__()
         self.backbone_feat_dim = backbone_feat_dim
         self.latent_dim = latent_dim
-        # keep the linear layer in fp16 to save memory / operate in half precision
-        self.fc = nn.Linear(backbone_feat_dim, latent_dim).half()
+        self.fc = nn.Linear(backbone_feat_dim, latent_dim)
 
     def forward(self, feature_map):
         # Pool feature map to get global features

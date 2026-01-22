@@ -221,6 +221,8 @@ models/smplx/
 
 tmp/
 
+*.pt
+
 # macOS specific files
 *.DS_Store
 .vscode

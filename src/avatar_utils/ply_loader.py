@@ -302,7 +302,7 @@ def reconstruct_gaussian_avatar_as_ply(gaussian_params, template, output_path):
     # Create a new data structure for the PLY
     ply_data = {
         "xyz": template["xyz"],
-        "scales": scales,
+        "scales": template["scales"],
         "rots": rots,
         "alphas": alphas,
         "shs": shs,
