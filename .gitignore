@@ -215,14 +215,20 @@ processed/*
 logs/*
 output/*
 
+# Ignore model files
 models/nlf_checkpoint/
 models/smpl/
 models/smplx/
 
+# Ignore temporary files
 tmp/
-checkpoints/
 
+# Ignore checkpoints
+checkpoints/
 *.pt
+
+# Ignore debug files
+debug*
 
 # macOS specific files
 *.DS_Store
