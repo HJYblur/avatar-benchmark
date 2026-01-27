@@ -57,7 +57,15 @@ def main():
 
     # Infer backbone feature dimensionality from a sample batch
     sample = next(iter(dm.train_dataloader()))
-    sample_img = sample["image"]  # (B,3,H,W)
+    # New dataset returns images under 'images_float' (possibly [1,V,C,H,W])
+    if isinstance(sample, dict) and "images_float" in sample:
+        sample_img = sample["images_float"]
+        if sample_img.ndim == 5 and sample_img.shape[0] == 1:
+            sample_img = sample_img[0]  # [V,C,H,W]
+    elif isinstance(sample, dict) and "image" in sample:
+        sample_img = sample["image"]
+    else:
+        raise RuntimeError("Unexpected sample format from dataloader")
     # move sample to same device as the NLF model
     sample_img = sample_img.to(device)
     logger.info(f"Sample image tensor shape: {tuple(sample_img.shape)}")

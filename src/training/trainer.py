@@ -41,13 +41,17 @@ class Trainer(L.LightningModule):
         # TODO[run-pipeline]: Add args/config to control optimizer, lr, loss weights, renderer, etc.
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
-        # Be tolerant to different batch formats
-        if isinstance(batch, (list, tuple)):
+        # Extract images from new dataset keys: images_float / images_uint8
+        if isinstance(batch, dict) and "images_float" in batch:
+            image = batch["images_float"]
+            # Default collate with batch_size=1 yields shape [1,V,C,H,W]
+            if image.ndim == 5 and image.shape[0] == 1:
+                image = image[0]  # [V,C,H,W]
+        elif isinstance(batch, (list, tuple)):
             image = batch[0]
         elif isinstance(batch, dict) and "image" in batch:
             image = batch["image"]
         else:
-            # fallback
             image = batch
 
         # Ensure BCHW order
@@ -73,8 +77,10 @@ class Trainer(L.LightningModule):
         # Use image feature (float32/float16) for feature extraction
         # Use the original int image: `detect_input` for prediction ops.
         detect_input = image
-        if isinstance(batch, dict) and "image_uint8" in batch:
-            detect_input = batch["image_uint8"]
+        if isinstance(batch, dict) and "images_uint8" in batch:
+            detect_input = batch["images_uint8"]
+            if detect_input.ndim == 5 and detect_input.shape[0] == 1:
+                detect_input = detect_input[0]  # [V,C,H,W]
 
         feats_path = "debug_backbone_features.pt"
         preds_path = "debug_backbone_preds.pt"

@@ -1,11 +1,11 @@
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Callable
 
 import math
 import torch
 from torch.utils.data import DataLoader, Subset
 import lightning as L
 
-from src.data.datasets import AvatarDataset
+from src.data.datasets import AvatarDataset, ViewsChunkedDataset
 
 
 class AvatarDataModule(L.LightningDataModule):
@@ -20,12 +20,12 @@ class AvatarDataModule(L.LightningDataModule):
     def setup(self, stage: Optional[str] = None):
         data_cfg = self.cfg.get("data", {})
         train_cfg = self.cfg.get("train", {})
-
         base_ds = AvatarDataset(
             root=data_cfg.get("root", "processed"),
-            proc_side=int(data_cfg.get("proc_side", 256)),
-            template_path=data_cfg.get("template_path", "models/avatar_template.ply"),
+            transform=None,
         )
+        # Chunk views sequentially based on desired views-per-batch (use train batch_size)
+        chunk_size = int(train_cfg.get("batch_size", 4))
 
         n = len(base_ds)
         val_ratio = float(train_cfg.get("val_ratio", 0.0))
@@ -36,17 +36,20 @@ class AvatarDataModule(L.LightningDataModule):
             train_idx = idx[n_val:]
             if len(train_idx) == 0:  # fallback to at least one train sample
                 train_idx, val_idx = idx[:-1], idx[-1:]
-            self.train_ds = Subset(base_ds, train_idx)
-            self.val_ds = Subset(base_ds, val_idx)
+            train_base = Subset(base_ds, train_idx)
+            val_base = Subset(base_ds, val_idx)
+            self.train_ds = ViewsChunkedDataset(train_base, chunk_size)
+            self.val_ds = ViewsChunkedDataset(val_base, chunk_size)
         else:
-            self.train_ds = base_ds
+            self.train_ds = ViewsChunkedDataset(base_ds, chunk_size)
             self.val_ds = None
 
     def train_dataloader(self) -> DataLoader:
         train_cfg = self.cfg.get("train", {})
         return DataLoader(
             self.train_ds,
-            batch_size=int(train_cfg.get("batch_size", 2)),
+            # Each batch is one sequential chunk of views
+            batch_size=1,
             num_workers=int(train_cfg.get("num_workers", 2)),
             shuffle=True,
         )
@@ -57,7 +60,7 @@ class AvatarDataModule(L.LightningDataModule):
         train_cfg = self.cfg.get("train", {})
         return DataLoader(
             self.val_ds,
-            batch_size=int(train_cfg.get("batch_size", 2)),
+            batch_size=1,
             num_workers=int(train_cfg.get("num_workers", 2)),
             shuffle=False,
         )

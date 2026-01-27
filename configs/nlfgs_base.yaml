@@ -5,7 +5,7 @@ sys:
 data:
   raw: data
   root: processed
-  proc_side: 512 ## integer image resize side length
+  num_views: 4
   template_path: models/avatar_template.ply
 
 nlf:
@@ -37,7 +37,7 @@ decoder:
 
 train:
   accelerator: cpu
-  batch_size: 2
+  batch_size: 4
   num_workers: 2
   epochs: 1
   # Optional: fraction of data for validation split (0.0 disables val)
