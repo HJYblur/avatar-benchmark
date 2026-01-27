@@ -6,6 +6,7 @@ import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
+from avatar_utils.config import get_config
 
 
 class AvatarDataset(Dataset):
@@ -38,8 +39,8 @@ class AvatarDataset(Dataset):
         template_path: str = "models/avatar_template.ply",
         transform: Optional[Any] = None,
     ):
-        # Test mode
-        self.test_mode = True
+        # Debug mode
+        self.debug_mode = bool(get_config().get("sys", {}).get("debug", False))
 
         self.root = root
         self.proc_side = int(proc_side)
@@ -214,19 +215,11 @@ class AvatarDataset(Dataset):
                     }
                 )
 
-        # If in test mode, limit records to the first 5 examples to speed up iteration
-        if getattr(self, "test_mode", False):
-            if len(self._records) > 5:
-                self._records = self._records[:5]
+        # If in debug mode, limit records to the first 6 examples to speed up iteration
+        if getattr(self, "debug_mode", False):
+            if len(self._records) > 6:
+                self._records = self._records[:6]
 
         return found
 
     # No flat image fallback; processed layout is required
-
-
-def _sorted_recursive_glob(pattern: str) -> List[str]:
-    # Simple sorted glob supporting ** via os.walk
-    import glob
-
-    paths = glob.glob(pattern, recursive=True)
-    return sorted(paths)

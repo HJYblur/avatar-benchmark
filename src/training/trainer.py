@@ -28,15 +28,14 @@ class Trainer(L.LightningModule):
         train_decoder_only: bool = True,
     ):
         super().__init__()
-        # Keep the AvatarTemplate instance (it loads its internal avatar on init)
         self.template = AvatarTemplate()
         self.backbone = backbone_adapter
         self.avatar_estimator = AvatarGaussianEstimator(self.template)
         self.identity_encoder = identity_encoder
         self.decoder = decoder
-        # If True, freeze all parameters except the decoder's so only decoder gets updated.
         self.train_decoder_only = train_decoder_only
 
+        # If True, freeze all parameters except the decoder's so only decoder gets updated.
         if self.train_decoder_only:
             self.identity_encoder.eval()
         # TODO[run-pipeline]: Add args/config to control optimizer, lr, loss weights, renderer, etc.
@@ -60,6 +59,13 @@ class Trainer(L.LightningModule):
         elif image.dim() == 4 and image.shape[1] != 3 and image.shape[-1] == 3:
             image = image.permute(0, 3, 1, 2).contiguous()
 
+        # Move image to the trainer/device to ensure later ops use correct device
+        try:
+            image = image.to(self.device)
+        except Exception:
+            # If image isn't a tensor (fallback), ignore
+            pass
+
         B = image.shape[0]
         H = image.shape[-2]
         W = image.shape[-1]
@@ -74,8 +80,8 @@ class Trainer(L.LightningModule):
         preds_path = "debug_backbone_preds.pt"
         if os.path.exists(feats_path) and os.path.exists(preds_path):
             # Try to load precomputed features and preds for faster debugging
-            feats = torch.load(feats_path, map_location=image.device)
-            preds = torch.load(preds_path, map_location=image.device)
+            feats = torch.load(feats_path, map_location=self.device)
+            preds = torch.load(preds_path, map_location=self.device)
             print(
                 f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
             )
@@ -163,7 +169,8 @@ class Trainer(L.LightningModule):
                 "train_decoder_only=True but decoder has no trainable parameters"
             )
 
-        reg_loss = torch.tensor(0.0, device=image.device)
+        # Ensure reg_loss is on the module/device
+        reg_loss = torch.tensor(0.0, device=self.device)
         for p in self.decoder.parameters():
             # accumulate squared L2 norm
             reg_loss = reg_loss + p.pow(2).sum()

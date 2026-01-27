@@ -1,32 +1,28 @@
-# Core dependencies
-numpy<1.24.0
-chumpy>=0.70
+## Minimal requirements for avatar-benchmark (excluding `nlf/` subpackage)
+numpy>=1.21.0
 opencv-python>=4.5.0
-pillow>=8.0.0
-scipy>=1.7.0
-tqdm>=4.62.0
-matplotlib>=3.4.0
 
-# Data handling
-omegaconf>=2.1.0
-h5py>=3.1.0
-lpips>=0.1.4
-
-# Deep learning frameworks
+## Important: install PyTorch first using the official selector
+## (https://pytorch.org) to match the CUDA / OS configuration, then
+## run: python -m pip install -r requirements.txt
 torch>=1.10.0
 torchvision>=0.11.0
+lightning>=2.0.0
 
-# 3D and mesh processing
+pillow>=8.0.0
+omegaconf>=2.1.0
+h5py>=3.1.0
+tqdm>=4.62.0
+
+# 3D / geometry libs used by core code (avatar templates / ply IO)
 trimesh>=3.9.0
-pyrender>=0.1.45
-smplx>=0.1.28
-scikit-image>=0.18.0
 plyfile>=0.7.2
 
-# Optional / environment-specific
-# pytorch3d  # install separately for CUDA/OS compatibility if needed
-
-# Convenience: common extras used by preprocessing scripts
-# (opencv-python, tqdm, h5py, torch already listed above)
-
-# Note: remove or pin further packages as needed for your environment.
+# Notes:
+# - The `nlf/` subpackage (SMPL/SMPLX fitting, rendering, and demo code)
+#   depends on additional packages (smplx, chumpy, pyrender, florch,
+#   simplepyutils, matplotlib, imageio, pandas, etc.) which are intentionally
+#   omitted here per your request. 
+#   If you later need the nlf demos, install
+#   them using `nlf/environment_comfortable_py10.yml` or
+#   `nlf/install_dependencies.sh`.

@@ -1,5 +1,6 @@
 sys:
-  device: cpu
+  device: cpu # 'cpu', 'cuda', 'cuda:0', etc.
+  debug: True
 
 data:
   # Root of processed PeopleSnapshot-style data.

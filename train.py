@@ -40,9 +40,15 @@ def main():
     cfg = load_config(args.config)
     logger.info(f"Loaded config: {args.config}")
 
-    # Force device to be on cpu
-    device = torch.device("cpu")
-    logger.info(f"Using device: {device}")
+    # Determine device from config (fallback to cpu)
+    device_str = None
+    if isinstance(cfg, dict):
+        device_str = cfg.get("sys", {}).get("device") if cfg.get("sys") else None
+    # Fallback to environment variable or cpu
+    if not device_str:
+        device_str = "cpu"
+    device = torch.device(device_str)
+    logger.info(f"Using device from config: {device}")
 
     # Build datamodule
     dm = AvatarDataModule(cfg)

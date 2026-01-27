@@ -50,16 +50,18 @@ class GaussianDecoder(nn.Module):
         Returns a dict of parameterized Gaussian fields (batched):
           scales: (B,N,3), rotation: (B,N,4), alpha: (B,N,1), sh: (B,N,K)
         """
-        h = self.activation1(self.fc1(combined_feats))  # (B,N,H)
+        # Place FiLM after the linear layer but before the non-linearity.
+        h = self.fc1(combined_feats)  # (B,N,H)
 
         assert (
             z_id is not None
-        ), "z_id must be provided when decoder configured with z_dim"
+        ), "z_id must be provided when deIcoder configured with z_dim"
         gamma_beta = self.film_net(z_id)  # (B, 2H)
         gamma, beta = gamma_beta.chunk(2, dim=-1)
         gamma = gamma.unsqueeze(1)
         beta = beta.unsqueeze(1)
         h = (1.0 + gamma) * h + beta
+        h = self.activation1(h)
 
         out = self.mlp(h)
 
