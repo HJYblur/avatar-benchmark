@@ -17,6 +17,7 @@ tqdm>=4.62.0
 # 3D / geometry libs used by core code (avatar templates / ply IO)
 trimesh>=3.9.0
 plyfile>=0.7.2
+pyrender>=0.1.45
 
 # Notes:
 # - The `nlf/` subpackage (SMPL/SMPLX fitting, rendering, and demo code)

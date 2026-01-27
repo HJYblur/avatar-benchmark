@@ -3,11 +3,9 @@ sys:
   debug: True
 
 data:
-  # Root of processed PeopleSnapshot-style data.
-  # Either a single subject dir (processed/<subject>) or a folder of subjects (processed/).
+  raw: data
   root: processed
-  # integer image resize side length
-  proc_side: 512
+  proc_side: 512 ## integer image resize side length
   template_path: models/avatar_template.ply
 
 nlf:
