@@ -21,11 +21,10 @@ class IdentityEncoder(nn.Module):
         B, C, Hf, Wf = feature_map.shape
         pooled_feats = torch.mean(feature_map, dim=(2, 3))  # (B, C)
 
-        # Ensure pooled features are the same dtype as the linear layer (fc)
+        # Match the linear layer dtype to avoid precision/dtype asserts when using fp16 backbones
         fc_dtype = self.fc.weight.dtype
-        assert (
-            pooled_feats.dtype == fc_dtype
-        ), f"Feature map dtype {pooled_feats.dtype} does not match fc layer dtype {fc_dtype}"
+        if pooled_feats.dtype != fc_dtype:
+            pooled_feats = pooled_feats.to(fc_dtype)
 
         batched_z_id = self.fc(pooled_feats)  # (B, latent_dim)
 

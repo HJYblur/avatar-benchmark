@@ -1,6 +1,6 @@
 sys:
   device: cuda # 'cpu', 'cuda', 'cuda:0', etc.
-  debug: True
+  debug: False
 
 data:
   raw: data
@@ -39,6 +39,6 @@ train:
   accelerator: cuda
   batch_size: 4
   num_workers: 2
-  epochs: 1
+  epochs: 10
   # Optional: fraction of data for validation split (0.0 disables val)
   val_ratio: 0.0

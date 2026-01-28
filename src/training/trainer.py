@@ -145,6 +145,20 @@ class Trainer(L.LightningModule):
             feats, preds
         )  # (B, N, 3)
 
+        # Free large intermediates early to reduce peak VRAM before decoding
+        try:
+            del feats
+            del preds
+            del image
+            del detect_input
+        except Exception:
+            pass
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
+
         """
         Decode:
         gaussian_params: Fused gaussian Params(N, C_params)
@@ -155,6 +169,20 @@ class Trainer(L.LightningModule):
         )  # (B, N, C_local + 3)
 
         gaussian_params = self.decoder(combined_feats, z_id)  # Fused output
+
+        # Free combined inputs post-decoding
+        try:
+            del combined_feats
+            del z_id
+            del local_feats
+            del coord3d
+        except Exception:
+            pass
+        if torch.cuda.is_available():
+            try:
+                torch.cuda.empty_cache()
+            except Exception:
+                pass
 
         # Debug check:
         for k, v in gaussian_params.items():

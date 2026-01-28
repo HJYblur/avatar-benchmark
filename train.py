@@ -1,6 +1,7 @@
 import argparse
 import logging
 import sys
+import os
 from pathlib import Path
 
 import torch
@@ -44,21 +45,6 @@ def main():
     dm = AvatarDataModule(cfg)
     dm.setup("fit")
     logger.info("DataModule setup complete")
-
-    # Infer backbone feature dimensionality from a sample batch
-    sample = next(iter(dm.train_dataloader()))
-    # New dataset returns images under 'images_float' (possibly [1,V,C,H,W])
-    if isinstance(sample, dict) and "images_float" in sample:
-        sample_img = sample["images_float"]
-        if sample_img.ndim == 5 and sample_img.shape[0] == 1:
-            sample_img = sample_img[0]  # [V,C,H,W]
-    elif isinstance(sample, dict) and "image" in sample:
-        sample_img = sample["image"]
-    else:
-        raise RuntimeError("Unexpected sample format from dataloader")
-    # move sample to same device as the NLF model
-    sample_img = sample_img.to(device)
-    logger.debug(f"Sample image tensor shape: {tuple(sample_img.shape)}")
 
     # Import nlf model
     # Load TorchScript model; force it to the chosen device
@@ -107,10 +93,18 @@ def main():
     max_epochs = int(cfg["train"]["epochs"]) if "train" in cfg else 1
     logger.info(f"Training for max_epochs={max_epochs}")
 
+    # Trainer precision and accelerator
+    precision = cfg.get("train", {}).get("precision")
+
+    # Improve CUDA memory behavior unless user overrides
+    if "PYTORCH_CUDA_ALLOC_CONF" not in os.environ:
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "expandable_segments:True"
+
     trainer = L.Trainer(
         max_epochs=max_epochs,
-        devices=0,
+        devices=1,
         accelerator=cfg.get("train", {}).get("accelerator", "cpu"),
+        precision=precision if precision else None,
         logger=False,
     )
     logger.info("Beginning trainer.fit()")

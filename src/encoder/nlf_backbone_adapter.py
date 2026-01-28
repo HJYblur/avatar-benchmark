@@ -100,7 +100,6 @@ class NLFBackboneAdapter:
             frame_batch, model_name=model_name, **kwargs
         )
 
-        # Check if the dtype is float16, then convert to float32
-        if feature_map.dtype == torch.float16:
-            feature_map = feature_map.float()
+        # Keep feature map in its native precision (often float16) to reduce VRAM.
+        # Downstream modules will upcast where necessary.
         return feature_map, preds
