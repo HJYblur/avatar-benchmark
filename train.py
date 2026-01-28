@@ -109,8 +109,8 @@ def main():
 
     trainer = L.Trainer(
         max_epochs=max_epochs,
-        devices=int(cfg.get("trainer", {}).get("devices", 1)),
-        accelerator=cfg.get("trainer", {}).get("accelerator", "cpu"),
+        devices=0,
+        accelerator=cfg.get("train", {}).get("accelerator", "cpu"),
         logger=False,
     )
     logger.info("Beginning trainer.fit()")

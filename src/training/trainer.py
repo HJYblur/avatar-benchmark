@@ -83,6 +83,7 @@ class Trainer(L.LightningModule):
             detect_input = batch["images_uint8"]
             if detect_input.ndim == 5 and detect_input.shape[0] == 1:
                 detect_input = detect_input[0]  # [V,C,H,W]
+        detect_input = detect_input.to(self.device)
 
         # --- Debug: load tmp results and save a sample image ---
         if self.debug:

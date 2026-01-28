@@ -1,5 +1,5 @@
 sys:
-  device: auto # 'cpu', 'cuda', 'cuda:0', etc.
+  device: cuda # 'cpu', 'cuda', 'cuda:0', etc.
   debug: True
 
 data:
@@ -36,7 +36,7 @@ decoder:
   out_dim: 11
 
 train:
-  accelerator: auto
+  accelerator: cuda
   batch_size: 4
   num_workers: 2
   epochs: 1

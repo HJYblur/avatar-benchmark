@@ -5,8 +5,6 @@ opencv-python>=4.5.0
 ## Important: install PyTorch first using the official selector
 ## (https://pytorch.org) to match the CUDA / OS configuration, then
 ## run: python -m pip install -r requirements.txt
-torch>=1.10.0
-torchvision>=0.11.0
 lightning>=2.0.0
 
 pillow>=8.0.0
