@@ -3,7 +3,7 @@ from typing import Optional, Dict, Any, Callable
 import math
 import torch
 from torch.utils.data import DataLoader, Subset
-import lightning as L
+import pytorch_lightning as L
 
 from src.data.datasets import AvatarDataset, ViewsChunkedDataset
 

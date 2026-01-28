@@ -2,7 +2,7 @@ from typing import Any, Dict, Optional
 import os
 import torch
 from torch.utils.data import DataLoader
-import lightning as L
+import pytorch_lightning as L
 from encoder.nlf_backbone_adapter import NLFBackboneAdapter
 from encoder.gaussian_estimator import AvatarGaussianEstimator
 from encoder.identity_encoder import IdentityEncoder
@@ -83,6 +83,10 @@ class Trainer(L.LightningModule):
             detect_input = batch["images_uint8"]
             if detect_input.ndim == 5 and detect_input.shape[0] == 1:
                 detect_input = detect_input[0]  # [V,C,H,W]
+        if torch.is_tensor(detect_input):
+            detect_input = detect_input.to(self.device)
+            
+        print(f"@@@@@ image float32 device:{image.device}, uint8 device:{detect_input.device}")
 
         # --- Debug: load tmp results and save a sample image ---
         if self.debug:

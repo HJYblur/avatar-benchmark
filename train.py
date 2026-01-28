@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 
 import torch
-import lightning as L
+import pytorch_lightning as L
 
 # Make 'src' importable when running as a script
 sys.path.append(str(Path(__file__).parent / "src"))
@@ -109,9 +109,9 @@ def main():
 
     trainer = L.Trainer(
         max_epochs=max_epochs,
-        devices=int(cfg.get("trainer", {}).get("devices", 1)),
-        accelerator=cfg.get("trainer", {}).get("accelerator", "cpu"),
-        logger=False,
+        devices=-1,
+        accelerator=cfg.get("train", {}).get("accelerator", "cpu"),
+        logger=True,
     )
     logger.info("Beginning trainer.fit()")
     trainer.fit(module, datamodule=dm)

@@ -43,6 +43,7 @@ class NLFBackboneAdapter:
         # TODO[run-pipeline]: Ensure input normalization (mean/std, resizing, color order) matches the
         #   NLF backbone expectations. The dataset currently returns float in [0,1] RGB.
         x = image.half() if use_half else image
+        # print(f"!!!!!{x.device}")
         x = self.nlf_model.crop_model.backbone(x)
         if use_heatmap_head and hasattr(self.nlf_model.crop_model, "heatmap_head"):
             head = self.nlf_model.crop_model.heatmap_head
