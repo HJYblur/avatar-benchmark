@@ -9,6 +9,7 @@ from encoder.identity_encoder import IdentityEncoder
 from encoder.avatar_template import AvatarTemplate
 from decoder.gaussian_decoder import GaussianDecoder
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
+from avatar_utils.config import get_config
 
 
 class Trainer(L.LightningModule):
@@ -28,6 +29,7 @@ class Trainer(L.LightningModule):
         train_decoder_only: bool = True,
     ):
         super().__init__()
+        self.debug = bool(get_config().get("sys", {}).get("debug", False))
         self.template = AvatarTemplate()
         self.backbone = backbone_adapter
         self.avatar_estimator = AvatarGaussianEstimator(self.template)
@@ -74,7 +76,7 @@ class Trainer(L.LightningModule):
         H = image.shape[-2]
         W = image.shape[-1]
 
-        # Use image feature (float32/float16) for feature extraction
+        # Use image feature (float32) for feature extraction
         # Use the original int image: `detect_input` for prediction ops.
         detect_input = image
         if isinstance(batch, dict) and "images_uint8" in batch:
@@ -82,42 +84,43 @@ class Trainer(L.LightningModule):
             if detect_input.ndim == 5 and detect_input.shape[0] == 1:
                 detect_input = detect_input[0]  # [V,C,H,W]
 
-        feats_path = "debug_backbone_features.pt"
-        preds_path = "debug_backbone_preds.pt"
-        if os.path.exists(feats_path) and os.path.exists(preds_path):
-            # Try to load precomputed features and preds for faster debugging
-            feats = torch.load(feats_path, map_location=self.device)
-            preds = torch.load(preds_path, map_location=self.device)
-            print(
-                f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
-            )
+        # --- Debug: load tmp results and save a sample image ---
+        if self.debug:
+            feats_path = "debug_backbone_features.pt"
+            preds_path = "debug_backbone_preds.pt"
+            if os.path.exists(feats_path) and os.path.exists(preds_path):
+                # Try to load precomputed features and preds for faster debugging
+                feats = torch.load(feats_path, map_location=self.device)
+                preds = torch.load(preds_path, map_location=self.device)
+                print(
+                    f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
+                )
+            else:
+                feats, preds = self.backbone.detect_with_features(
+                    image_feature=image, frame_batch=detect_input, use_half=True
+                )
+                torch.save(feats, feats_path)
+                torch.save(preds, preds_path)
+                print(
+                    f"[trainer] Saved backbone features to {feats_path} and preds to {preds_path}"
+                )
+
+            try:
+                # Save the first sample image to disk for visual inspection.
+                # Import locally to avoid top-level dependency changes.
+                from torchvision.utils import save_image
+
+                sample_img = image[0].detach().cpu()
+                # Clamp in case image values are slightly out of [0,1]
+                save_image(sample_img.clamp(0.0, 1.0), "debug_sample.png")
+                print("[trainer] Saved input sample to debug_sample.png")
+            except Exception as exc:  # pragma: no cover - debugging helper
+                print(f"[trainer] Unable to save sample image: {exc}")
+        # --- end debug ---
         else:
             feats, preds = self.backbone.detect_with_features(
                 image_feature=image, frame_batch=detect_input, use_half=True
             )
-            torch.save(feats, feats_path)
-            torch.save(preds, preds_path)
-            print(
-                f"[trainer] Saved backbone features to {feats_path} and preds to {preds_path}"
-            )
-
-        # feats, preds = self.backbone.detect_with_features(
-        #     image_feature=image, frame_batch=detect_input, use_half=True
-        # )
-
-        # --- Debug: save a sample image ---
-        try:
-            # Save the first sample image to disk for visual inspection.
-            # Import locally to avoid top-level dependency changes.
-            from torchvision.utils import save_image
-
-            sample_img = image[0].detach().cpu()
-            # Clamp in case image values are slightly out of [0,1]
-            save_image(sample_img.clamp(0.0, 1.0), "debug_sample.png")
-            print("[trainer] Saved input sample to debug_sample.png")
-        except Exception as exc:  # pragma: no cover - debugging helper
-            print(f"[trainer] Unable to save sample image: {exc}")
-        # --- end debug ---
 
         """
         Encode:

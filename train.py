@@ -18,26 +18,16 @@ from src.avatar_utils.config import load_config
 
 
 def main():
-    # configure logging
-    log_dir = Path(__file__).parent / "logs"
-    log_dir.mkdir(exist_ok=True)
-    log_file = log_dir / "train.log"
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(str(log_file)),
-        ],
-    )
-    logger = logging.getLogger("train")
-    logger.info("\n\n")
-    logger.info("Starting training script")
     # Arg parsing
     parser = argparse.ArgumentParser(description="NLF-GS Training Scaffold")
     parser.add_argument("--config", type=str, default="configs/nlfgs_base.yaml")
     args = parser.parse_args()
     cfg = load_config(args.config)
+    debug = (
+        bool(cfg.get("sys", {}).get("debug", False)) if isinstance(cfg, dict) else False
+    )
+    logger = setup_logger(debug)
+    logger.info("Starting training script")
     logger.info(f"Loaded config: {args.config}")
 
     # Determine device from config (fallback to cpu)
@@ -68,7 +58,7 @@ def main():
         raise RuntimeError("Unexpected sample format from dataloader")
     # move sample to same device as the NLF model
     sample_img = sample_img.to(device)
-    logger.info(f"Sample image tensor shape: {tuple(sample_img.shape)}")
+    logger.debug(f"Sample image tensor shape: {tuple(sample_img.shape)}")
 
     # Import nlf model
     # Load TorchScript model; force it to the chosen device
@@ -85,11 +75,11 @@ def main():
     try:
         sd = nlf_checkpoint.state_dict()
         first_tensor = next(iter(sd.values()))
-        logger.info(
+        logger.debug(
             f"NLF checkpoint params -> device={first_tensor.device}, dtype={first_tensor.dtype}"
         )
     except Exception as _e:
-        logger.info(
+        logger.debug(
             "Could not introspect NLF checkpoint state_dict for device/dtype check"
         )
 
@@ -97,7 +87,7 @@ def main():
     backbone = NLFBackboneAdapter(nlf_checkpoint)
     logger.info("NLF Backbone Adapter initialized")
     c_local = int(cfg["nlf"].get("latent_dim", 512))
-    logger.info(f"Backbone feature map channels: {c_local}")
+    logger.debug(f"Backbone feature map channels: {c_local}")
 
     # Identity Encoder Initialization
     id_latent_dim = int(cfg["identity_encoder"].get("latent_dim", 64))
@@ -126,6 +116,27 @@ def main():
     logger.info("Beginning trainer.fit()")
     trainer.fit(module, datamodule=dm)
     logger.info("trainer.fit() finished")
+
+
+def setup_logger(debug: bool = False) -> logging.Logger:
+    """Initialize and return the project logger.
+
+    If debug is True, set level to DEBUG; otherwise INFO. Writes logs to both stdout
+    and a file under ./logs/train.log.
+    """
+    log_dir = Path(__file__).parent / "logs"
+    log_dir.mkdir(exist_ok=True)
+    log_file = log_dir / "train.log"
+    level = logging.DEBUG if debug else logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s %(levelname)-8s %(name)s - %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(str(log_file)),
+        ],
+    )
+    return logging.getLogger("train")
 
 
 if __name__ == "__main__":
