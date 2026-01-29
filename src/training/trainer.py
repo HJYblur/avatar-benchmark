@@ -137,13 +137,19 @@ class Trainer(L.LightningModule):
         print(f"[trainer] Identity latent vector z_id shape: {z_id.shape}")
 
         # Pass original image size so gaussian coord normalization uses image pixels
-        local_feats = self.avatar_estimator.feature_sample(
-            feats, preds, img_shape=(H, W)
-        )  # (B, N, C_local)
+        local_feats, view_weights, coord3d = (
+            self.avatar_estimator.feature_sample_with_visibility(
+                feats, preds, img_shape=(H, W)
+            )
+        )  # (B, N, C_local), (B, N), (B, N, 3)
 
-        coord3d = self.avatar_estimator.compute_gaussian_coord3d(
-            feats, preds
-        )  # (B, N, 3)
+        if local_feats.shape[0] > 1:
+            weight_sum = view_weights.sum(dim=0, keepdim=True).clamp_min(1e-6)
+            local_feats = (
+                local_feats * view_weights.unsqueeze(-1)
+            ).sum(dim=0, keepdim=True) / weight_sum.unsqueeze(-1)
+            coord3d = coord3d[:1]
+            z_id = z_id[:1]
 
         # Free large intermediates early to reduce peak VRAM before decoding
         try:
