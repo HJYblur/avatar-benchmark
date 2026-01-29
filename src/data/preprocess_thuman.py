@@ -126,7 +126,9 @@ def _camera_pose(
     return look_at(eye, center, up)
 
 
-def _render_views(mesh: trimesh.Trimesh, out_dir: Path, texture_path: Path | None):
+def _render_views(
+    mesh: trimesh.Trimesh, out_dir: Path, texture_path: Path | None, identity: str
+):
     scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
     scene.add(_mesh_to_pyrender(mesh, texture_path))
 
@@ -144,8 +146,15 @@ def _render_views(mesh: trimesh.Trimesh, out_dir: Path, texture_path: Path | Non
             cam_node = scene.add(camera, pose=pose)
             light_node = scene.add(light, pose=pose)
 
-            color, _ = renderer.render(scene)
-            Image.fromarray(color).save(out_dir / f"{name}.png")
+            color, depth = renderer.render(scene)
+            # Save color image with identity + view in the filename
+            Image.fromarray(color).save(out_dir / f"{identity}_{name}.png")
+
+            # Generate a foreground mask from depth (valid, >0)
+            if depth is not None:
+                mask_bool = np.isfinite(depth) & (depth > 0)
+                mask_img = mask_bool.astype(np.uint8) * 255
+                Image.fromarray(mask_img).save(out_dir / f"{identity}_{name}_mask.png")
 
             scene.remove_node(cam_node)
             scene.remove_node(light_node)
@@ -160,7 +169,7 @@ def preprocess_thuman(data_root: Path = DATA_ROOT, out_root: Path = OUT_ROOT):
         target_dir.mkdir(parents=True, exist_ok=True)
         mesh = _load_mesh(obj_path)
         texture_path = _find_texture_for_obj(obj_path)
-        _render_views(mesh, target_dir, texture_path)
+        _render_views(mesh, target_dir, texture_path, identity)
         print(f"Rendered {identity}")
 
 
