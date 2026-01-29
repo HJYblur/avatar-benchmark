@@ -108,7 +108,7 @@ class AvatarGaussianEstimator(nn.Module):
         if cached is None:
             v3d_list = pred["vertices3d"]  # A list of length B with (P, Nv, 3)
             cached = torch.stack([v3d_raw[0] for v3d_raw in v3d_list], dim=0)
-            pred["_vertices3d_stack"] = cached
+            pred["_vertices3d_stack"] = cached  # (B, Nv, 3)
         return cached.to(device=device)
 
     def compute_gaussian_normals(self, pred, device):
@@ -118,14 +118,16 @@ class AvatarGaussianEstimator(nn.Module):
         N = int(self._avatar.total_gaussians_num)
         parents = self._avatar.parents.to(device=device, dtype=torch.long)  # (N,3)
 
-        flat_idx = parents.reshape(-1)
-        verts_sel = vertices3d.index_select(1, flat_idx)  # (B, N*3, 3)
+        flat_idx = parents.reshape(-1)  # (N*3,)
+        verts_sel = vertices3d.index_select(dim=1, index=flat_idx)  # (B, N*3, 3)
         face_verts = verts_sel.reshape(B, N, 3, 3)  # (B, N, 3, 3)
 
         e1 = face_verts[:, :, 1] - face_verts[:, :, 0]
         e2 = face_verts[:, :, 2] - face_verts[:, :, 0]
         normals = torch.linalg.cross(e1, e2, dim=-1)
-        normals = normals / (torch.norm(normals, dim=-1, keepdim=True) + 1e-8)
+        normals = normals / (
+            torch.norm(normals, dim=-1, keepdim=True) + 1e-8
+        )  # (B,N,3)
         return normals
 
     def build_depth_map(self, pred, img_shape: tuple, device):
@@ -152,6 +154,7 @@ class AvatarGaussianEstimator(nn.Module):
                 continue
             idx = (y[b, valid[b]] * W_img + x[b, valid[b]]).to(torch.long)
             depth_vals = z[b, valid[b]]
+            # Keep the minimum depth per pixel
             if hasattr(torch.Tensor, "scatter_reduce_"):
                 depth_maps[b].scatter_reduce_(
                     0, idx, depth_vals, reduce="amin", include_self=True
@@ -177,6 +180,7 @@ class AvatarGaussianEstimator(nn.Module):
         device = feature_map.device
         normals = self.compute_gaussian_normals(pred, device=device)  # (B, N, 3)
 
+        # [Question]: Is the view direction always facing same side as the normal?
         view_dir = -centers3d
         view_dir = view_dir / (torch.norm(view_dir, dim=-1, keepdim=True) + 1e-8)
         angle_weight = torch.sum(normals * view_dir, dim=-1).clamp_min(0.0)
@@ -189,6 +193,7 @@ class AvatarGaussianEstimator(nn.Module):
         x = x.clamp(0, W_img - 1)
         y = y.clamp(0, H_img - 1)
 
+        # [Question]: How to vectorize this depth sampling?
         depth_samples = depth_map[torch.arange(depth_map.shape[0])[:, None], y, x]
         center_depth = centers3d[..., 2]
         visible = center_depth <= (depth_samples + depth_eps)
@@ -200,7 +205,6 @@ class AvatarGaussianEstimator(nn.Module):
     def feature_sample(
         self, feature_map, pred, img_shape: tuple = None, centers2d: torch.Tensor = None
     ):
-        # TODO: Add occlusion handling using coord3d
         """Sample per-Gaussian local features from a feature map (batched).
 
         Returns: (B, N, C)
@@ -275,18 +279,3 @@ class AvatarGaussianEstimator(nn.Module):
             depth_eps=depth_eps,
         )
         return local_feats, view_weights, centers3d
-
-    # def forward(self, feature_map, pred, gaussian_estimator):
-    #     """Predict Gaussian parameters from the sampled features.
-
-    #     Returns:
-    #         A tensor of shape (N, 1 + 4 + 3 + 3) containing Gaussian parameters:
-    #           - 'scale': Tensor of shape (N, 3)
-    #           - 'rotation': Tensor of shape (N, 4)
-    #           - 'alpha': Tensor of shape (N,)
-    #           - 'sh': Tensor of shape (N, 3)
-    #     """
-    #     batch_features = self.feature_sample(feature_map, pred)  # (B,N,C)
-    #     # For now, assume batch size 1
-    #     batch_gaussian_params = gaussian_estimator(batch_features[0])  # (N, P)
-    #     return batch_gaussian_params

@@ -35,12 +35,12 @@ class AvatarDataset(Dataset):
     """
     Minimal dataset for processed inputs.
 
-    Layout per subject:
-      processed/<subject>/
-        front.(png|jpg|jpeg)
-        back.(png|jpg|jpeg)
-        left.(png|jpg|jpeg)
-        right.(png|jpg|jpeg)
+        Layout per subject (new naming):
+            processed/<subject>/
+                <subject>_front.(png|jpg|jpeg)
+                <subject>_back.(png|jpg|jpeg)
+                <subject>_left.(png|jpg|jpeg)
+                <subject>_right.(png|jpg|jpeg)
 
     Behavior is controlled by config value `data.num_views`:
       - If num_views == 1: only the 'front' view is loaded.
@@ -114,11 +114,15 @@ class AvatarDataset(Dataset):
     def _index_subjects(self) -> None:
         """Collect subjects with the required views present."""
 
-        def find_view_file(subj_dir: Path, basename: str) -> Optional[Path]:
+        def find_view_file(
+            subj_dir: Path, basename: str, subject_name: str
+        ) -> Optional[Path]:
+            """Find view file using new '<subject>_<view>' naming."""
+            # Prefer new naming scheme
             for ext in IMG_EXTS:
-                p = subj_dir / f"{basename}{ext}"
-                if p.exists():
-                    return p
+                p_new = subj_dir / f"{subject_name}_{basename}{ext}"
+                if p_new.exists():
+                    return p_new
             return None
 
         # Find subject directories
@@ -134,7 +138,7 @@ class AvatarDataset(Dataset):
             paths: List[Path] = []
             ok = True
             for v in needed:
-                vp = find_view_file(subj_dir, v)
+                vp = find_view_file(subj_dir, v, subj_dir.name)
                 if vp is None:
                     ok = False
                     break

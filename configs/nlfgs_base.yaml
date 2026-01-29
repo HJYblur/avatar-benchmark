@@ -31,7 +31,7 @@ avatar:
 
 
 decoder:
-  in_dim: 515  # local feature dim + 3D coord dim
+  in_dim: 512  # local feature dim
   hidden: 256
   out_dim: 11
 

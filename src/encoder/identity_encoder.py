@@ -32,7 +32,7 @@ class IdentityEncoder(nn.Module):
 
         # Use the mean of the batched_z_id as the final identity latent vector per identity,
         # but still returns as a batch of size B for compatibility
-        z_id = batched_z_id.mean(dim=0)
-        z_id = z_id.unsqueeze(0).expand(B, -1)  # (B, latent_dim)
+        z_id = batched_z_id.mean(dim=0)  # (latent_dim,)
+        z_id = z_id.unsqueeze(0)  # (1, latent_dim)
 
-        return z_id  # (B, latent_dim)
+        return z_id

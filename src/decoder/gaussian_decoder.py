@@ -21,7 +21,7 @@ class GaussianDecoder(nn.Module):
         cfg = load_config() or {}
         dec_cfg = cfg.get("decoder", {})
 
-        self.in_dim = int(dec_cfg.get("in_dim", 515))
+        self.in_dim = int(dec_cfg.get("in_dim", 512))
         self.hidden = int(dec_cfg.get("hidden", 256))
         self.out_dim = int(dec_cfg.get("out_dim", 11))
         self.z_dim = int(cfg.get("identity_encoder", {}).get("latent_dim", 64))
@@ -44,12 +44,15 @@ class GaussianDecoder(nn.Module):
 
     def forward(self, combined_feats, z_id):
         """
-        combined_feats: (B, N, in_dim)
-        z_id: (B, z_dim) if FiLM is used (z_dim must be set in config)
+        combined_feats: (1, N, in_dim)
+        z_id: (1, z_dim) if FiLM is used (z_dim must be set in config)
 
-        Returns a dict of parameterized Gaussian fields (batched):
-          scales: (B,N,3), rotation: (B,N,4), alpha: (B,N,1), sh: (B,N,K)
+        Returns a dict of parameterized Gaussian fields without batch fusion:
+            scales: (N,3), rotation: (N,4), alpha: (N,), sh: (N,K)
+
+        Assumption: inputs have been aggregated across batch already (B==1).
         """
+
         # Support chunked decoding over the Gaussian dimension to reduce peak VRAM
         cfg = load_config() or {}
         dec_cfg = cfg.get("decoder", {})
@@ -57,45 +60,14 @@ class GaussianDecoder(nn.Module):
 
         B, N, _ = combined_feats.shape
 
-        assert (
-            z_id is not None
-        ), "z_id must be provided when deIcoder configured with z_dim"
-
-        def _fuse_batched_chunk(batched):
-            # Same logic as fuse_batch, but operates on a chunk and returns per-Gaussian tensors
-            scales = batched["scales"]
-            quats = batched["rotation"]
-            alpha = batched["alpha"]
-            sh = batched.get("sh", None)
-
-            if alpha.dim() == 3 and alpha.shape[-1] == 1:
-                alpha = alpha.squeeze(-1)
-
-            w = alpha.clamp(0.0, 1.0)
-            w_sum = w.sum(dim=0, keepdim=True).clamp_min(1e-8)
-            w = w / w_sum
-
-            scales_agg = (w.unsqueeze(-1) * scales).sum(dim=0)
-            sh_agg = (
-                (w.unsqueeze(-1) * sh).sum(dim=0)
-                if (sh is not None and sh.numel() > 0)
-                else None
+        if z_id is None:
+            raise ValueError(
+                "z_id must be provided when decoder is configured with z_dim"
             )
-
-            qqT = quats.unsqueeze(-1) @ quats.unsqueeze(-2)  # (B,nc,4,4)
-            M = (w.unsqueeze(-1).unsqueeze(-1) * qqT).sum(dim=0)  # (nc,4,4)
-            _, eigvecs = torch.linalg.eigh(M)
-            avg_q = eigvecs[..., -1]
-            avg_q = avg_q / (avg_q.norm(dim=-1, keepdim=True) + 1e-12)
-
-            alpha_mean = (w * alpha).sum(dim=0)
-
-            return {
-                "scales": scales_agg,
-                "rotation": avg_q,
-                "alpha": alpha_mean,
-                "sh": sh_agg,
-            }
+        if B != 1:
+            raise ValueError(
+                f"Decoder expects aggregated inputs with batch size 1, got B={B}"
+            )
 
         # Precompute FiLM gamma/beta once per batch and reuse for chunks
         gamma_beta = self.film_net(z_id)  # (B, 2H)
@@ -103,7 +75,7 @@ class GaussianDecoder(nn.Module):
         gamma = gamma.unsqueeze(1)  # (B,1,H)
         beta = beta.unsqueeze(1)  # (B,1,H)
 
-        fused_parts = {"scales": [], "rotation": [], "alpha": [], "sh": []}
+        parts = {"scales": [], "rotation": [], "alpha": [], "sh": []}
         for start in range(0, N, chunk_size):
             end = min(start + chunk_size, N)
             feats_chunk = combined_feats[:, start:end, :]  # (B,nc,in_dim)
@@ -116,34 +88,34 @@ class GaussianDecoder(nn.Module):
             # Remaining MLP
             out = self.mlp(h)  # (B,nc,out_dim)
 
-            # Parameterize and fuse across batch
-            split_out = self.split_and_parameterize(out)
-            fused_chunk = _fuse_batched_chunk(split_out)  # per-gaussian within chunk
+            # Parameterize per chunk without batch fusion
+            split_out = self.split_and_parameterize(out)  # dict of (B,nc,*)
+            # Squeeze batch dimension (B==1)
+            scales_nc = split_out["scales"].squeeze(0)  # (nc,3)
+            rot_nc = split_out["rotation"].squeeze(0)  # (nc,4)
+            alpha_nc = split_out["alpha"].squeeze(0)  # (nc,1)
+            sh_nc = split_out.get("sh", None)
+            sh_nc = (
+                None if (sh_nc is None or sh_nc.numel() == 0) else sh_nc.squeeze(0)
+            )  # (nc,K)
 
-            fused_parts["scales"].append(fused_chunk["scales"])  # (nc,3)
-            fused_parts["rotation"].append(fused_chunk["rotation"])  # (nc,4)
-            fused_parts["alpha"].append(fused_chunk["alpha"])  # (nc,) or (nc,1)
-            if fused_chunk["sh"] is not None:
-                fused_parts["sh"].append(fused_chunk["sh"])  # (nc,K)
-            else:
-                # Keep alignment: append None marker; we'll handle after the loop
-                fused_parts["sh"].append(None)
+            parts["scales"].append(scales_nc)
+            parts["rotation"].append(rot_nc)
+            parts["alpha"].append(alpha_nc)
+            parts["sh"].append(sh_nc)
 
             # Free chunk temporaries ASAP
             del feats_chunk, h, out, split_out, fused_chunk
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
         # Concatenate chunk results
-        scales = torch.cat([x for x in fused_parts["scales"]], dim=0)
-        rotation = torch.cat([x for x in fused_parts["rotation"]], dim=0)
-        alpha_list = fused_parts["alpha"]
-        alpha = torch.cat(
-            [x if x.dim() == 1 else x.squeeze(-1) for x in alpha_list], dim=0
-        )
+        scales = torch.cat([x for x in parts["scales"]], dim=0)  # (N,3)
+        rotation = torch.cat([x for x in parts["rotation"]], dim=0)  # (N,4)
+        alpha = torch.cat([x.squeeze(-1) for x in parts["alpha"]], dim=0)  # (N,)
 
         # If any chunk had SH, stack; else set to None
-        if any(x is not None for x in fused_parts["sh"]):
-            sh = torch.cat([x for x in fused_parts["sh"] if x is not None], dim=0)
+        if any(x is not None for x in parts["sh"]):
+            sh = torch.cat([x for x in parts["sh"] if x is not None], dim=0)  # (N,K)
         else:
             sh = None
 
