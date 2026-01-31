@@ -30,6 +30,9 @@ class Trainer(L.LightningModule):
     ):
         super().__init__()
         self.debug = bool(get_config().get("sys", {}).get("debug", False))
+        self.use_identity_encoder = bool(
+            get_config().get("identity_encoder", {}).get("use_flag", True)
+        )
         self.template = AvatarTemplate()
         self.backbone = backbone_adapter
         self.avatar_estimator = AvatarGaussianEstimator(self.template)
@@ -95,8 +98,12 @@ class Trainer(L.LightningModule):
         assert B == B_feats, "Batch size mismatch between image and features"
         N = int(self.template.total_gaussians_num)
 
-        z_id = self.identity_encoder(feature_map=feats)  # (1, D)
-        print(f"[trainer] Identity latent vector z_id shape: {z_id.shape}")
+        if self.use_identity_encoder:
+            z_id = self.identity_encoder(feature_map=feats)  # (1, D)
+            print(f"[trainer] Identity latent vector z_id shape: {z_id.shape}")
+        else:
+            z_id = None
+            print("[trainer] Skipping identity encoder.")
 
         # [Structure]: Ignore coord3d as encoder output for now
         local_feats, view_weights, _ = (

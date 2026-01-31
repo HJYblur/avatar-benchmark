@@ -42,10 +42,10 @@ class GaussianDecoder(nn.Module):
             nn.Linear(self.hidden, self.out_dim),
         )
 
-    def forward(self, combined_feats, z_id):
+    def forward(self, combined_feats, z_id=None):
         """
         combined_feats: (1, N, in_dim)
-        z_id: (1, z_dim) if FiLM is used (z_dim must be set in config)
+        z_id: Optional (1, z_dim). If provided, FiLM modulation is applied.
 
         Returns a dict of parameterized Gaussian fields without batch fusion:
             scales: (N,3), rotation: (N,4), alpha: (N,), sh: (N,K)
@@ -60,20 +60,20 @@ class GaussianDecoder(nn.Module):
 
         B, N, _ = combined_feats.shape
 
-        if z_id is None:
-            raise ValueError(
-                "z_id must be provided when decoder is configured with z_dim"
-            )
         if B != 1:
             raise ValueError(
                 f"Decoder expects aggregated inputs with batch size 1, got B={B}"
             )
 
-        # Precompute FiLM gamma/beta once per batch and reuse for chunks
-        gamma_beta = self.film_net(z_id)  # (B, 2H)
-        gamma, beta = gamma_beta.chunk(2, dim=-1)
-        gamma = gamma.unsqueeze(1)  # (B,1,H)
-        beta = beta.unsqueeze(1)  # (B,1,H)
+        # Precompute FiLM gamma/beta once per batch and reuse for chunks if z_id is provided
+        if z_id is not None:
+            gamma_beta = self.film_net(z_id)  # (B, 2H)
+            gamma, beta = gamma_beta.chunk(2, dim=-1)
+            gamma = gamma.unsqueeze(1)  # (B,1,H)
+            beta = beta.unsqueeze(1)  # (B,1,H)
+        else:
+            gamma = None
+            beta = None
 
         parts = {"scales": [], "rotation": [], "alpha": [], "sh": []}
         for start in range(0, N, chunk_size):
@@ -82,7 +82,8 @@ class GaussianDecoder(nn.Module):
 
             # First block + FiLM
             h = self.fc1(feats_chunk)  # (B,nc,H)
-            h = (1.0 + gamma) * h + beta
+            if gamma is not None and beta is not None:
+                h = (1.0 + gamma) * h + beta
             h = self.activation1(h)
 
             # Remaining MLP
@@ -105,7 +106,7 @@ class GaussianDecoder(nn.Module):
             parts["sh"].append(sh_nc)
 
             # Free chunk temporaries ASAP
-            del feats_chunk, h, out, split_out, fused_chunk
+            del feats_chunk, h, out, split_out
             torch.cuda.empty_cache() if torch.cuda.is_available() else None
 
         # Concatenate chunk results
