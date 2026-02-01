@@ -289,20 +289,25 @@ def save_ply(data, path: str):
     PlyData([ply_el], text=False).write(path)
 
 
-def reconstruct_gaussian_avatar_as_ply(gaussian_params, template, output_path):
+def reconstruct_gaussian_avatar_as_ply(xyz, gaussian_params, template, output_path):
     """
-    Reconstruct a Gaussian avatar from the given parameters and save it as a PLY file.
+    Reconstruct a Gaussian avatar from the given parameters and return (and save) as a PLY file.
     """
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # Extract parameters
     scales = gaussian_params["scales"]
+    print(
+        f"[reconstruct_gaussian_avatar_as_ply] scales min & max: {scales.min().item()}, {scales.max().item()}"
+    )
+    scales_log = torch.log(torch.clamp(scales, min=1e-6))
     rots = gaussian_params["rotation"]
     alphas = gaussian_params["alpha"]
     shs = gaussian_params["sh"]
 
     # Create a new data structure for the PLY
     ply_data = {
-        "xyz": template["xyz"],
-        "scales": template["scales"],
+        "xyz": xyz,
+        "scales": scales,
         "rots": rots,
         "alphas": alphas,
         "shs": shs,
@@ -311,3 +316,4 @@ def reconstruct_gaussian_avatar_as_ply(gaussian_params, template, output_path):
 
     # Save the PLY file
     save_ply(ply_data, output_path)
+    return ply_data

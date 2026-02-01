@@ -14,6 +14,7 @@ from src.data.datamodule import AvatarDataModule
 from src.encoder.nlf_backbone_adapter import NLFBackboneAdapter
 from src.encoder.identity_encoder import IdentityEncoder
 from src.decoder.gaussian_decoder import GaussianDecoder
+from src.renderer.gaussian_renderer import GsplatRenderer
 from src.training.trainer import Trainer
 from src.avatar_utils.config import load_config
 
@@ -28,7 +29,7 @@ def main():
         bool(cfg.get("sys", {}).get("debug", False)) if isinstance(cfg, dict) else False
     )
     logger = setup_logger(debug)
-    logger.info("Starting training script")
+    logger.info("\n\nStarting training script")
     logger.info(f"Loaded config: {args.config}")
 
     # Determine device from config (fallback to cpu)
@@ -83,10 +84,15 @@ def main():
     decoder = GaussianDecoder()  # local feature dim + coord3d dim
     logger.info(f"Decoder Initialized.")  # 512 + 3 = 515
 
+    # Renderer Initialization
+    renderer = GsplatRenderer() if device != torch.device("cpu") else None
+    logger.info("Renderer Initialized.")
+
     module = Trainer(
         backbone_adapter=backbone,
         identity_encoder=id_encoder,
         decoder=decoder,
+        renderer=renderer,
         train_decoder_only=True,
     )
 
@@ -130,6 +136,20 @@ def setup_logger(debug: bool = False) -> logging.Logger:
             logging.FileHandler(str(log_file)),
         ],
     )
+    # Suppress noisy third-party DEBUG logs (e.g., PIL PNG plugin, fsspec)
+    for name in (
+        "PIL",
+        "PIL.Image",
+        "PIL.PngImagePlugin",
+        "fsspec",
+        "fsspec.local",
+    ):
+        try:
+            lg = logging.getLogger(name)
+            lg.setLevel(logging.WARNING)
+            lg.propagate = False
+        except Exception:
+            pass
     return logging.getLogger("train")
 
 

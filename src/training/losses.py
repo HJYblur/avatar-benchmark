@@ -1,8 +1,13 @@
 import torch
 
 
-def dummy_loss(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-    """A placeholder loss function that computes mean squared error."""
+def L1_loss(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """Compute the L1 loss between predictions and targets."""
+    return torch.mean(torch.abs(preds - targets))
+
+
+def L2_loss(preds: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+    """Compute the L2 loss between predictions and targets."""
     return torch.mean((preds - targets) ** 2)
 
 
