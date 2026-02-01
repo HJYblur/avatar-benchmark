@@ -24,11 +24,9 @@ def main():
     parser = argparse.ArgumentParser(description="NLF-GS Training Scaffold")
     parser.add_argument("--config", type=str, default="configs/nlfgs_base.yaml")
     args = parser.parse_args()
+    os.environ["NLFGS_CONFIG"] = args.config
     cfg = load_config(args.config)
-    debug = (
-        bool(cfg.get("sys", {}).get("debug", False)) if isinstance(cfg, dict) else False
-    )
-    logger = setup_logger(debug)
+    logger = setup_logger(debug=False)
     logger.info("\n\n")
     logger.info("Starting training script")
     logger.info(f"Loaded config: {args.config}")

@@ -51,11 +51,17 @@ class GsplatRenderer:
         if save_folder_path is not None:
             from torchvision.io import write_png
             from torchvision.transforms.functional import convert_image_dtype
+            from pathlib import Path as _Path
+
+            # Ensure the output directory exists and build a filename
+            out_dir = _Path(save_folder_path)
+            out_dir.mkdir(parents=True, exist_ok=True)
+            out_file = out_dir / "debug.png"
 
             # Save the first rendered image as PNG for inspection
             sample_img = (
                 rendered_imgs[0].permute(2, 0, 1).to(torch.device("cpu"))
             )  # (3, H, W)
-            img_to_save = convert_image_dtype(sample_img, dtype=torch.uint8)
-            write_png(img_to_save, os.path.join(save_folder_path, f"debug.png"))
+            img_to_save = convert_image_dtype(sample_img.clamp(0, 1), dtype=torch.uint8)
+            write_png(img_to_save, str(out_file))
         return rendered_imgs  # (B, 3, H, W) where B=len(view_name) if list
