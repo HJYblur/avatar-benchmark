@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+import logging
 from pathlib import Path
 import os
 import torch
@@ -16,14 +17,6 @@ from avatar_utils.config import get_config
 
 
 class Trainer(L.LightningModule):
-    """
-    Minimal training scaffold that demonstrates wiring:
-    - Loads batches from a DataLoader
-    - Encodes features with NLF backbone adapter
-    - Predict Gaussian parameters with AvatarGaussianEstimator
-    - Identity encoding with IdentityEncoder
-    """
-
     def __init__(
         self,
         backbone_adapter: NLFBackboneAdapter,
@@ -33,6 +26,7 @@ class Trainer(L.LightningModule):
         train_decoder_only: bool = True,
     ):
         super().__init__()
+        self._logger = logging.getLogger("train")
         self.debug = bool(get_config().get("sys", {}).get("debug", False))
         self.use_identity_encoder = bool(
             get_config().get("identity_encoder", {}).get("use_flag", True)
@@ -52,11 +46,13 @@ class Trainer(L.LightningModule):
             for p in self.identity_encoder.parameters():
                 p.requires_grad = False
 
+        self._logger.info(f"Debug mode: {self.debug}")
         # TODO[run-pipeline]: Add args/config to control optimizer, lr, loss weights, renderer, etc.
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
-        # Extract and normalize images + detector input (now: img_float and img_uint8)
+        # Extract data from batch
         img_float, img_uint8, (B, H, W), subject, view_names = self.process_input(batch)
+        self._logger.info(f"Processing subject: {subject}, views: {view_names}")
 
         # --- Debug: load tmp results and save a sample image ---
         if self.debug:
@@ -78,10 +74,10 @@ class Trainer(L.LightningModule):
 
         if self.use_identity_encoder:
             z_id = self.identity_encoder(feature_map=feats)  # (1, D)
-            print(f"[trainer] Identity latent vector z_id shape: {z_id.shape}")
+            self._logger.debug(f"Identity latent vector z_id shape: {z_id.shape}")
         else:
             z_id = None
-            print("[trainer] Skipping identity encoder.")
+            self._logger.info("Skipping identity encoder.")
 
         local_feats, view_weights, gaussian_3d = (
             self.avatar_estimator.feature_sample_with_visibility(
@@ -120,7 +116,7 @@ class Trainer(L.LightningModule):
         # Debug check:
         if self.debug:
             for k, v in gaussian_params.items():
-                print(f"[trainer] Decoded gaussian_params[{k}] shape: {v.shape}")
+                self._logger.debug(f"Decoded gaussian_params[{k}] shape: {v.shape}")
 
         """
         Render and Loss Computation:
@@ -254,8 +250,8 @@ class Trainer(L.LightningModule):
             # Try to load precomputed features and preds for faster debugging
             preds = torch.load(preds_path, map_location=self.device, weights_only=True)
             feats = torch.load(feats_path, map_location=self.device, weights_only=True)
-            print(
-                f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
+            self._logger.info(
+                f"Loaded backbone features from {feats_path} and preds from {preds_path}"
             )
         else:
             feats, preds = self.backbone.detect_with_features(
@@ -263,8 +259,8 @@ class Trainer(L.LightningModule):
             )
             torch.save(feats, feats_path)
             torch.save(preds, preds_path)
-            print(
-                f"[trainer] Saved backbone features to {feats_path} and preds to {preds_path}"
+            self._logger.info(
+                f"Saved backbone features to {feats_path} and preds to {preds_path}"
             )
 
         try:
@@ -274,9 +270,9 @@ class Trainer(L.LightningModule):
             sample_img = img_float[0].detach().cpu()
             # Clamp in case image values are slightly out of [0,1]
             save_image(sample_img.clamp(0.0, 1.0), "debug_sample.png")
-            print("[trainer] Saved input sample to debug_sample.png")
+            self._logger.info("Saved input sample to debug_sample.png")
         except Exception as exc:  # pragma: no cover - debugging helper
-            print(f"[trainer] Unable to save sample image: {exc}")
+            self._logger.warning(f"Unable to save sample image: {exc}")
 
         return feats, preds
 

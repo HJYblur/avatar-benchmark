@@ -1,5 +1,6 @@
 sys:
   device: cuda # 'cpu', 'cuda', 'cuda:0', etc.
+  matmul_precision: medium  # 'high', 'medium', 'low'
   debug: False
 
 data:
