@@ -30,7 +30,6 @@ avatar:
       - [0.2, 0.2, 0.6]
       - [0.3333333333, 0.3333333333, 0.3333333333]
 
-
 decoder:
   in_dim: 512  # local feature dim
   hidden: 256
@@ -43,3 +42,6 @@ train:
   epochs: 10
   # Optional: fraction of data for validation split (0.0 disables val)
   val_ratio: 0.0
+
+render:
+  save_path: output

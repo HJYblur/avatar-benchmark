@@ -14,7 +14,7 @@ from src.data.datamodule import AvatarDataModule
 from src.encoder.nlf_backbone_adapter import NLFBackboneAdapter
 from src.encoder.identity_encoder import IdentityEncoder
 from src.decoder.gaussian_decoder import GaussianDecoder
-from src.renderer.gaussian_renderer import GsplatRenderer
+from src.render.gaussian_renderer import GsplatRenderer
 from src.training.trainer import Trainer
 from src.avatar_utils.config import load_config
 
@@ -29,7 +29,8 @@ def main():
         bool(cfg.get("sys", {}).get("debug", False)) if isinstance(cfg, dict) else False
     )
     logger = setup_logger(debug)
-    logger.info("\n\nStarting training script")
+    logger.info("\n\n")
+    logger.info("Starting training script")
     logger.info(f"Loaded config: {args.config}")
 
     # Determine device from config (fallback to cpu)

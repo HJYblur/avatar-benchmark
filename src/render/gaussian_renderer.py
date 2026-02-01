@@ -14,6 +14,7 @@ class GsplatRenderer:
         gaussian_3d: torch.Tensor,
         gaussian_params: dict[str, torch.Tensor],
         view_name: Union[str, Sequence[str]],
+        save_path: str = None,
     ) -> torch.Tensor:
         """
         Render the Gaussian splat representation into 2D images.
@@ -41,4 +42,11 @@ class GsplatRenderer:
             image_width=width,
             image_height=height,
         )
+        if save_path is not None:
+            from torchvision.io import write_png
+            from torchvision.transforms.functional import convert_image_dtype
+
+            # Save the first rendered image as PNG for inspection
+            img_to_save = convert_image_dtype(rendered_imgs[0], dtype=torch.uint8)
+            write_png(img_to_save, save_path)
         return rendered_imgs  # (B, 3, H, W) where B=len(view_name) if list

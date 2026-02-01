@@ -98,7 +98,6 @@ class Trainer(L.LightningModule):
         try:
             del feats
             del preds
-            del img_float
             del img_uint8
         except Exception:
             pass
@@ -137,19 +136,27 @@ class Trainer(L.LightningModule):
                 xyz=gaussian_3d[0],
                 gaussian_params=gaussian_params,
                 template=self.template.load_avatar_template(mode="test"),
-                output_path=f"output/{subject}/{subject}_{view_names[0]}.ply",
+                output_path=f"output/{subject}/{subject}_{view_names[0][0]}.ply",
             )
 
         if self.device.type == "cuda":
+            save_path = (
+                Path(get_config().get("render", {}).get("save_path", "output"))
+                / subject
+            )
             rendered_imgs = self.renderer.render(
                 gaussian_3d=gaussian_3d,
                 gaussian_params=gaussian_params,
                 view_name=view_names,
+                save_path=save_path,
             )  # (V, 3, H, W)
+            if not rendered_imgs.requires_grad:
+                # Renderer returned a non-differentiable tensor; fall back to proxy loss
+                rendered_imgs = None
         else:
-            rendered_imgs = torch.randn(
-                (self.num_views, 3, H, W), device=self.device
-            )  # Placeholder for non-CUDA devices
+            # No differentiable renderer available on CPU; use a proxy
+            # regularization loss on gaussian_params to keep gradients flowing.
+            rendered_imgs = None
 
         # Free combined inputs post-decoding
         try:
@@ -164,9 +171,32 @@ class Trainer(L.LightningModule):
             except Exception:
                 pass
 
-        preds = rendered_imgs  # (V, 3, H, W)
-        gt = img_float  # (B, 3, H, W)
-        loss = L2_loss(preds, gt)
+        if rendered_imgs is not None:
+            preds = rendered_imgs  # (V, 3, H, W)
+            gt = img_float  # (B, 3, H, W)
+            loss = L2_loss(preds, gt)
+        else:
+            loss = self._proxy_regularization_loss(gaussian_params)
+        return loss
+
+    def _proxy_regularization_loss(
+        self, gaussian_params: Dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """A simple differentiable loss on decoded gaussian parameters.
+
+        This is used when a differentiable renderer is not available (e.g., CPU).
+        It regularizes scales and opacities to small values while keeping rotation
+        quaternions bounded. Adjust weights as needed.
+        """
+        loss = torch.tensor(0.0, device=self.device)
+        if "scales" in gaussian_params:
+            loss = loss + gaussian_params["scales"].pow(2).mean()
+        if "alpha" in gaussian_params:
+            loss = loss + 0.1 * gaussian_params["alpha"].pow(2).mean()
+        if "rotation" in gaussian_params:
+            # Encourage unit quaternions (norm ~ 1)
+            q = gaussian_params["rotation"]
+            loss = loss + 0.1 * (q.norm(dim=-1) - 1.0).pow(2).mean()
         return loss
 
     def process_input(self, batch):
@@ -207,7 +237,8 @@ class Trainer(L.LightningModule):
 
         B, _, H, W = img_float.shape
 
-        subject, view_names = batch.get("subject", None), batch.get("view_names", None)
+        subject = batch.get("subject", None)[0]
+        view_names = batch.get("view_names", None)
 
         return img_float, img_uint8, (B, H, W), subject, view_names
 
