@@ -3,6 +3,7 @@ import json
 import trimesh
 import torch
 from typing import List, Optional, Sequence, Union
+from avatar_utils.config import get_config
 
 
 def load_camera_mapping(
@@ -20,6 +21,9 @@ def load_camera_mapping(
     # Resolve project root as two levels up from this file (src/...)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     cache_dir = os.path.join(project_root, "data", "THuman_cameras")
+    
+    # Define device
+    device = torch.device(get_config().get("sys", {}).get("device", "cpu"))
 
     def _load_one(vname: str) -> tuple[torch.Tensor, torch.Tensor]:
         cache_path = os.path.join(cache_dir, f"thuman_{vname}.json")
@@ -37,7 +41,7 @@ def load_camera_mapping(
 
     if isinstance(view_name, str):
         vm, k = _load_one(view_name)
-        return vm.unsqueeze(0), k.unsqueeze(0)
+        return vm.unsqueeze(0).to(device), k.unsqueeze(0).to(device)
     else:
         vms = []
         ks = []
@@ -45,7 +49,7 @@ def load_camera_mapping(
             vm, k = _load_one(str(v))
             vms.append(vm)
             ks.append(k)
-        return torch.stack(vms, dim=0), torch.stack(ks, dim=0)
+        return torch.stack(vms, dim=0).to(device), torch.stack(ks, dim=0).to(device)
 
 
 def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:

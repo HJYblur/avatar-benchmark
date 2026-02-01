@@ -43,6 +43,23 @@ def main():
     device = torch.device(device_str)
     logger.info(f"Using device from config: {device}")
 
+    # Prefer Tensor Cores / TF32 on Ampere+ GPUs for faster float32 matmul
+    # See: https://pytorch.org/docs/stable/generated/torch.set_float32_matmul_precision.html
+    try:
+        # Allow override from config: sys.matmul_precision: 'high' | 'medium' | 'highest'
+        matmul_prec = None
+        if isinstance(cfg, dict):
+            matmul_prec = cfg.get("sys", {}).get("matmul_precision")
+        if device.type == "cuda":
+            torch.set_float32_matmul_precision(matmul_prec or "high")
+            # Log the actual applied value
+            logger.info(
+                f"torch.set_float32_matmul_precision -> {torch.get_float32_matmul_precision()}"
+            )
+    except Exception as e:
+        # Non-fatal; continue training with default behavior
+        logger.warning(f"Could not set float32 matmul precision: {e}")
+
     # Build datamodule
     dm = AvatarDataModule(cfg)
     dm.setup("fit")

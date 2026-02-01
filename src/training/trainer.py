@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from pathlib import Path
 import os
 import torch
 from torch.utils.data import DataLoader
@@ -47,7 +48,9 @@ class Trainer(L.LightningModule):
 
         # If True, freeze all parameters except the decoder's so only decoder gets updated.
         if self.train_decoder_only:
-            self.identity_encoder.eval()
+            # Keep module in train mode to avoid Lightning warnings, but freeze grads
+            for p in self.identity_encoder.parameters():
+                p.requires_grad = False
 
         # TODO[run-pipeline]: Add args/config to control optimizer, lr, loss weights, renderer, etc.
 
@@ -57,7 +60,7 @@ class Trainer(L.LightningModule):
 
         # --- Debug: load tmp results and save a sample image ---
         if self.debug:
-            feats, preds = self.load_debug_feats()
+            feats, preds = self.load_debug_feats(img_float, img_uint8)
         else:
             feats, preds = self.backbone.detect_with_features(
                 image_feature=img_float, frame_batch=img_uint8, use_half=True
@@ -145,11 +148,11 @@ class Trainer(L.LightningModule):
                 / subject
             )
             rendered_imgs = self.renderer.render(
-                gaussian_3d=gaussian_3d,
+                gaussian_3d=gaussian_3d[0],
                 gaussian_params=gaussian_params,
                 view_name=view_names,
-                save_path=save_path,
-            )  # (V, 3, H, W)
+                save_folder_path=save_path,
+            )  # (V, H, W, 3)
             if not rendered_imgs.requires_grad:
                 # Renderer returned a non-differentiable tensor; fall back to proxy loss
                 rendered_imgs = None
@@ -172,7 +175,7 @@ class Trainer(L.LightningModule):
                 pass
 
         if rendered_imgs is not None:
-            preds = rendered_imgs  # (V, 3, H, W)
+            preds = rendered_imgs.permute(0, 3, 1, 2)  # (B, 3, H, W)
             gt = img_float  # (B, 3, H, W)
             loss = L2_loss(preds, gt)
         else:
@@ -239,16 +242,18 @@ class Trainer(L.LightningModule):
 
         subject = batch.get("subject", None)[0]
         view_names = batch.get("view_names", None)
+        if view_names is not None:
+            view_names = [v[0] for v in view_names]
 
         return img_float, img_uint8, (B, H, W), subject, view_names
 
-    def load_debug_feats(self):
+    def load_debug_feats(self, img_float, img_uint8):
         feats_path = "debug_backbone_features.pt"
         preds_path = "debug_backbone_preds.pt"
         if os.path.exists(feats_path) and os.path.exists(preds_path):
             # Try to load precomputed features and preds for faster debugging
-            feats = torch.load(feats_path, map_location=self.device)
-            preds = torch.load(preds_path, map_location=self.device)
+            preds = torch.load(preds_path, map_location=self.device, weights_only=True)
+            feats = torch.load(feats_path, map_location=self.device, weights_only=True)
             print(
                 f"[trainer] Loaded backbone features from {feats_path} and preds from {preds_path}"
             )

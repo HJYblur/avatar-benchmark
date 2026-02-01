@@ -1,3 +1,4 @@
+import os
 import torch
 from gsplat import rasterization
 from avatar_utils.config import get_config
@@ -14,7 +15,8 @@ class GsplatRenderer:
         gaussian_3d: torch.Tensor,
         gaussian_params: dict[str, torch.Tensor],
         view_name: Union[str, Sequence[str]],
-        save_path: str = None,
+        save_folder_path: str = None,
+        render_mode: str = "RGB",
     ) -> torch.Tensor:
         """
         Render the Gaussian splat representation into 2D images.
@@ -30,6 +32,8 @@ class GsplatRenderer:
         """
         # Load precomputed camera matrices (batched if a list is provided)
         viewmats, Ks = load_camera_mapping(view_name)
+        viewmats = viewmats.to(gaussian_3d.device).contiguous()
+        Ks = Ks.to(gaussian_3d.device).contiguous()
         width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
         rendered_imgs, rendered_alphas, meta = rasterization(
             means=gaussian_3d,
@@ -39,14 +43,19 @@ class GsplatRenderer:
             colors=gaussian_params.get("sh", None),  # (N, K), usually K = 3
             viewmats=viewmats,
             Ks=Ks,
-            image_width=width,
-            image_height=height,
+            width=width,
+            height=height,
+            render_mode=render_mode,
         )
-        if save_path is not None:
+        # rendered_imgs: (B, H, W, 3)
+        if save_folder_path is not None:
             from torchvision.io import write_png
             from torchvision.transforms.functional import convert_image_dtype
 
             # Save the first rendered image as PNG for inspection
-            img_to_save = convert_image_dtype(rendered_imgs[0], dtype=torch.uint8)
-            write_png(img_to_save, save_path)
+            sample_img = (
+                rendered_imgs[0].permute(2, 0, 1).to(torch.device("cpu"))
+            )  # (3, H, W)
+            img_to_save = convert_image_dtype(sample_img, dtype=torch.uint8)
+            write_png(img_to_save, os.path.join(save_folder_path, f"debug.png"))
         return rendered_imgs  # (B, 3, H, W) where B=len(view_name) if list

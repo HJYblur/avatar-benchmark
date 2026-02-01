@@ -1,4 +1,11 @@
 import os
+
+# Headless Linux often lacks an X11 display; force an offscreen GL backend early
+# before importing pyrender so it can pick a headless platform (EGL/OSMesa).
+if not os.environ.get("DISPLAY") and "PYOPENGL_PLATFORM" not in os.environ:
+    # Prefer EGL on GPU servers; if unavailable, users can switch to 'osmesa'
+    os.environ["PYOPENGL_PLATFORM"] = "egl"
+
 import json
 from pathlib import Path
 import numpy as np
