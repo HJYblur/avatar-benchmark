@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 import numpy as np
 import trimesh
@@ -57,6 +58,7 @@ VIEWPOINTS = {
     "left": np.array([-1.0, 0.0, 0.0]),
     "right": np.array([1.0, 0.0, 0.0]),
 }
+CAMERA_MAP_ROOT = Path(__file__).resolve().parents[2] / "data" / "THuman_cameras"
 
 
 def _iter_identities(root: Path):
@@ -68,38 +70,65 @@ def _iter_identities(root: Path):
 
 
 def _find_texture_for_obj(obj_path: Path) -> Path | None:
-    """Best-effort lookup for the per-identity texture image.
+    """Find the per-identity texture image, preferring material0.* if present.
 
-    THuman identities typically have a single *.jpeg/*jpg texture next to the OBJ.
+    THuman subjects typically ship with `material0.mtl` and `material0.jpeg`.
+    Prefer that, but fall back to any adjacent .jpeg/.jpg/.png.
     """
+    # Prefer the canonical material0.* texture name
+    for ext in (".jpeg", ".jpg", ".png"):
+        p = obj_path.parent / f"material0{ext}"
+        if p.exists():
+            return p
+    # Fallback: any adjacent image next to the OBJ
     for pattern in ("*.jpeg", "*.jpg", "*.png"):
-        matches = sorted(obj_path.parent.glob(pattern))
-        if matches:
-            return matches[0]
+        for p in sorted(obj_path.parent.glob(pattern)):
+            if p.name.lower().startswith("material0"):
+                return p
+            # return the first match if no material0 was found
+            return p
     return None
 
 
-def _load_mesh(obj_path: Path) -> trimesh.Trimesh:
-    mesh = trimesh.load(obj_path, force="scene", process=False)
-    if isinstance(mesh, trimesh.Scene):
-        # `Scene.dump(concatenate=True)` is deprecated; use `to_geometry()`.
-        combined = trimesh.scene.scene.Scene()
-        combined.add_geometry(mesh.to_geometry())
-        return combined.to_geometry()
-    return mesh
+def _load_meshes(obj_path: Path) -> list[trimesh.Trimesh]:
+    """Load an OBJ and return a list of geometry meshes with visuals/materials.
+
+    Use process=True so trimesh parses the associated MTL and texture maps.
+    """
+    loaded = trimesh.load(obj_path, process=True)
+    if isinstance(loaded, trimesh.Scene):
+        # Collect all geometry as trimesh.Trimesh objects
+        geoms = []
+        for name, geom in loaded.geometry.items():
+            if isinstance(geom, trimesh.Trimesh):
+                geoms.append(geom)
+        return geoms
+    elif isinstance(loaded, trimesh.Trimesh):
+        return [loaded]
+    else:
+        return []
 
 
 def _mesh_to_pyrender(
     mesh: trimesh.Trimesh, texture_path: Path | None
 ) -> pyrender.Mesh:
-    """Convert trimesh to pyrender mesh, applying a texture if provided."""
+    """Convert trimesh to pyrender mesh.
+
+    If trimesh visuals/materials are present (from MTL), let pyrender build its
+    own material from the mesh visuals. Otherwise, if a texture_path was found,
+    create a simple PBR material with that texture as baseColor.
+    """
+    # Prefer using existing visuals/materials parsed from MTL
+    if (
+        getattr(mesh, "visual", None) is not None
+        and getattr(mesh.visual, "material", None) is not None
+    ):
+        return pyrender.Mesh.from_trimesh(mesh, smooth=True)
+
+    # Fallback: apply explicit texture if provided
     if texture_path is not None and texture_path.exists():
-        # Create a simple PBR material with the provided baseColor texture.
         tex_img = Image.open(texture_path).convert("RGB")
-        # pyrender expects a numpy array or path for the texture source.
         tex_data = np.asarray(tex_img)
-        # specify source_channels ('RGB' here) because some pyrender
-        # versions require an explicit channel specification.
         tex = pyrender.Texture(source=tex_data, source_channels="RGB")
         material = pyrender.MetallicRoughnessMaterial(
             baseColorTexture=tex,
@@ -109,9 +138,7 @@ def _mesh_to_pyrender(
         )
         return pyrender.Mesh.from_trimesh(mesh, material=material, smooth=True)
 
-    # Fall back to trimesh visuals (vertex colors / embedded materials) if present.
-    if getattr(mesh, "visual", None) is not None:
-        return pyrender.Mesh.from_trimesh(mesh, smooth=True)
+    # Last resort: no visuals or texture found
     return pyrender.Mesh.from_trimesh(mesh, smooth=False)
 
 
@@ -127,14 +154,25 @@ def _camera_pose(
 
 
 def _render_views(
-    mesh: trimesh.Trimesh, out_dir: Path, texture_path: Path | None, identity: str
+    meshes: list[trimesh.Trimesh],
+    out_dir: Path,
+    texture_path: Path | None,
+    identity: str,
 ):
     scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
-    scene.add(_mesh_to_pyrender(mesh, texture_path))
+    for m in meshes:
+        scene.add(_mesh_to_pyrender(m, texture_path))
 
-    bbox = mesh.bounds
-    center = bbox.mean(axis=0)
-    radius = np.linalg.norm(bbox[1] - bbox[0]) / 2.0
+    # Compute a bounding box from all meshes for camera framing
+    if len(meshes) == 0:
+        return
+    # Compute global bounds across all meshes
+    mins = np.array([m.bounds[0] for m in meshes])  # (M,3)
+    maxs = np.array([m.bounds[1] for m in meshes])  # (M,3)
+    bbox_min = mins.min(axis=0)
+    bbox_max = maxs.max(axis=0)
+    center = (bbox_min + bbox_max) / 2.0
+    radius = float(np.linalg.norm(bbox_max - bbox_min)) / 2.0
 
     camera = pyrender.PerspectiveCamera(yfov=np.deg2rad(45.0))
     light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
@@ -162,20 +200,80 @@ def _render_views(
         renderer.delete()
 
 
+def generate_camera_mapping(
+    output_dir: Path | None = None,
+    image_size: tuple[int, int] = IMAGE_SIZE,
+    yfov_deg: float = 45.0,
+    distance: float = 2.5,
+) -> None:
+    """Generate and store camera intrinsics & extrinsics for THuman views.
+
+    This writes one JSON per view under ``.data/`` by default, named
+    ``thuman_<view>.json``. Each JSON contains:
+      - "K": 3x3 intrinsics matrix
+      - "viewmat": 4x4 world-to-camera matrix
+      - "image_size": [W, H]
+      - "yfov_deg": vertical field of view in degrees
+
+    Args:
+        output_dir: Destination directory (default: project-root/.data).
+        image_size: (W, H) used to derive principal point and focal length.
+        yfov_deg: Vertical field of view in degrees.
+        distance: Canonical camera distance from origin for all views.
+    """
+    if output_dir is None:
+        output_dir = CAMERA_MAP_ROOT
+    os.makedirs(output_dir, exist_ok=True)
+
+    W, H = image_size
+    yfov_rad = np.deg2rad(yfov_deg)
+    # Focal length from vertical FOV: fy = H / (2 * tan(yfov/2)); fx = fy
+    fy = H / (2.0 * np.tan(yfov_rad / 2.0))
+    fx = fy
+    cx = (W - 1) / 2.0
+    cy = (H - 1) / 2.0
+    K = np.array([[fx, 0.0, cx], [0.0, fy, cy], [0.0, 0.0, 1.0]], dtype=float)
+
+    center = np.zeros(3, dtype=float)
+    up_world = np.array([0.0, 1.0, 0.0], dtype=float)
+
+    for view_name, direction in VIEWPOINTS.items():
+        eye = center + direction * distance
+        up = up_world.copy()
+        if np.allclose(np.cross(up, direction), 0.0):
+            up = np.array([0.0, 0.0, 1.0], dtype=float)
+
+        c2w = look_at(eye, center, up)
+        w2c = np.linalg.inv(c2w)
+
+        payload = {
+            "K": K.tolist(),
+            "viewmat": w2c.tolist(),
+            "image_size": [int(W), int(H)],
+            "yfov_deg": float(yfov_deg),
+        }
+        out_path = output_dir / f"thuman_{view_name}.json"
+        with open(out_path, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False, indent=2)
+    print(f"Camera mappings written to: {output_dir}")
+
+
 def preprocess_thuman(data_root: Path = DATA_ROOT, out_root: Path = OUT_ROOT):
     os.makedirs(out_root, exist_ok=True)
+    # Proactively generate camera mappings if not present
+    try:
+        generate_camera_mapping(output_dir=CAMERA_MAP_ROOT)
+    except Exception:
+        # Non-fatal; continue preprocessing even if mapping generation fails
+        pass
     for identity, obj_path in _iter_identities(data_root):
         target_dir = out_root / identity
         target_dir.mkdir(parents=True, exist_ok=True)
-        mesh = _load_mesh(obj_path)
+        meshes = _load_meshes(obj_path)
         texture_path = _find_texture_for_obj(obj_path)
-        _render_views(mesh, target_dir, texture_path, identity)
+        _render_views(meshes, target_dir, texture_path, identity)
         print(f"Rendered {identity}")
 
 
-def main():
-    preprocess_thuman()
-
-
 if __name__ == "__main__":
-    main()
+    preprocess_thuman()
