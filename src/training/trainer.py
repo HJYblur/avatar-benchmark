@@ -1,4 +1,5 @@
 from typing import Any, Dict, Optional
+from contextlib import nullcontext
 import logging
 from pathlib import Path
 import os
@@ -54,13 +55,19 @@ class Trainer(L.LightningModule):
         img_float, img_uint8, (B, H, W), subject, view_names = self.process_input(batch)
         self._logger.info(f"Processing subject: {subject}, views: {view_names}")
 
-        # --- Debug: load tmp results and save a sample image ---
-        if self.debug:
-            feats, preds = self.load_debug_feats(img_float, img_uint8)
-        else:
-            feats, preds = self.backbone.detect_with_features(
-                image_feature=img_float, frame_batch=img_uint8, use_half=True
-            )
+        grad_ctx = torch.inference_mode() if self.train_decoder_only else nullcontext()
+        amp_ctx = (
+            torch.cuda.amp.autocast(dtype=torch.float16)
+            if self.train_decoder_only and self.device.type == "cuda"
+            else nullcontext()
+        )
+        with grad_ctx, amp_ctx:
+            if self.debug:
+                feats, preds = self.load_debug_feats(img_float, img_uint8)
+            else:
+                feats, preds = self.backbone.detect_with_features(
+                    image_feature=img_float, frame_batch=img_uint8, use_half=True
+                )
 
         """
         Encode:
@@ -72,18 +79,19 @@ class Trainer(L.LightningModule):
         assert B == B_feats, "Batch size mismatch between image and features"
         N = int(self.template.total_gaussians_num)
 
-        if self.use_identity_encoder:
-            z_id = self.identity_encoder(feature_map=feats)  # (1, D)
-            self._logger.debug(f"Identity latent vector z_id shape: {z_id.shape}")
-        else:
-            z_id = None
-            self._logger.info("Skipping identity encoder.")
+        with grad_ctx, amp_ctx:
+            if self.use_identity_encoder:
+                z_id = self.identity_encoder(feature_map=feats)  # (1, D)
+                self._logger.debug(f"Identity latent vector z_id shape: {z_id.shape}")
+            else:
+                z_id = None
+                self._logger.info("Skipping identity encoder.")
 
-        local_feats, view_weights, gaussian_3d = (
-            self.avatar_estimator.feature_sample_with_visibility(
-                feats, preds, img_shape=(H, W)
-            )
-        )  # (B, N, C_local), (B, N)
+            local_feats, view_weights, gaussian_3d = (
+                self.avatar_estimator.feature_sample_with_visibility(
+                    feats, preds, img_shape=(H, W)
+                )
+            )  # (B, N, C_local), (B, N)
 
         if local_feats.shape[0] > 1:
             weight_sum = view_weights.sum(dim=0, keepdim=True).clamp_min(1e-6)
@@ -236,10 +244,23 @@ class Trainer(L.LightningModule):
 
         B, _, H, W = img_float.shape
 
-        subject = batch.get("subject", None)[0]
+        # Normalize subject (may be a str or a singleton list/tuple)
+        subject = batch.get("subject", None)
+        if isinstance(subject, (list, tuple)):
+            subject = subject[0]
+
+        # Normalize view_names to a flat List[str]
         view_names = batch.get("view_names", None)
-        if view_names is not None:
-            view_names = [v[0] for v in view_names]
+        if isinstance(view_names, (list, tuple)):
+            # DataLoader with batch_size=1 may wrap as [List[str]]
+            if len(view_names) == 1 and isinstance(view_names[0], (list, tuple)):
+                view_names = list(view_names[0])
+            else:
+                # Flatten possible tuples like ('front',) and ensure str
+                view_names = [
+                    vn[0] if isinstance(vn, (list, tuple)) else vn for vn in view_names
+                ]
+        # Else leave None as-is
 
         return img_float, img_uint8, (B, H, W), subject, view_names
 
