@@ -56,12 +56,7 @@ class Trainer(L.LightningModule):
         self._logger.info(f"Processing subject: {subject}, views: {view_names}")
 
         grad_ctx = torch.inference_mode() if self.train_decoder_only else nullcontext()
-        amp_ctx = (
-            torch.cuda.amp.autocast(dtype=torch.float16)
-            if self.train_decoder_only and self.device.type == "cuda"
-            else nullcontext()
-        )
-        with grad_ctx, amp_ctx:
+        with grad_ctx:
             if self.debug:
                 feats, preds = self.load_debug_feats(img_float, img_uint8)
             else:
@@ -79,7 +74,7 @@ class Trainer(L.LightningModule):
         assert B == B_feats, "Batch size mismatch between image and features"
         N = int(self.template.total_gaussians_num)
 
-        with grad_ctx, amp_ctx:
+        with grad_ctx:
             if self.use_identity_encoder:
                 z_id = self.identity_encoder(feature_map=feats)  # (1, D)
                 self._logger.debug(f"Identity latent vector z_id shape: {z_id.shape}")

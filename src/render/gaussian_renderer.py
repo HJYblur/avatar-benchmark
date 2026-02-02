@@ -17,6 +17,7 @@ class GsplatRenderer:
         view_name: Union[str, Sequence[str]],
         save_folder_path: str = None,
         render_mode: str = "RGB",
+        backgrounds: torch.Tensor = None,
     ) -> torch.Tensor:
         """
         Render the Gaussian splat representation into 2D images.
@@ -28,13 +29,19 @@ class GsplatRenderer:
                 (e.g., ['front', 'left']).
 
         Returns:
-            Rendered images as a tensor of shape (1, 3, H, W).
+            Rendered images as a tensor of shape (B, H, W, 3).
         """
         # Load precomputed camera matrices (batched if a list is provided)
-        viewmats, Ks = load_camera_mapping(view_name)
+        viewmats, Ks = load_camera_mapping(view_name)  # (B, 4, 4), (B, 3, 3)
         viewmats = viewmats.to(gaussian_3d.device).contiguous()
         Ks = Ks.to(gaussian_3d.device).contiguous()
         width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
+        num_cameras = viewmats.shape[0]
+        # backgrounds = (
+        #     torch.ones((num_cameras, 1), device=gaussian_3d.device)
+        #     if backgrounds is None
+        #     else backgrounds
+        # )
         rendered_imgs, rendered_alphas, meta = rasterization(
             means=gaussian_3d,
             quats=gaussian_params["rotation"],
@@ -46,6 +53,7 @@ class GsplatRenderer:
             width=width,
             height=height,
             render_mode=render_mode,
+            backgrounds=backgrounds,
         )
         # rendered_imgs: (B, H, W, 3)
         if save_folder_path is not None:
@@ -64,4 +72,4 @@ class GsplatRenderer:
             )  # (3, H, W)
             img_to_save = convert_image_dtype(sample_img.clamp(0, 1), dtype=torch.uint8)
             write_png(img_to_save, str(out_file))
-        return rendered_imgs  # (B, 3, H, W) where B=len(view_name) if list
+        return rendered_imgs  # (B, H, W, 3) where B=len(view_name) if list
