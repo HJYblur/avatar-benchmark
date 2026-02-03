@@ -15,6 +15,8 @@ class GsplatRenderer:
         gaussian_3d: torch.Tensor,
         gaussian_params: dict[str, torch.Tensor],
         view_name: Union[str, Sequence[str]],
+        sh_degree: int = 1,
+        camera_model: str = "pinhole",  # “pinhole”, “ortho”, “fisheye”, and “ftheta”. Default is “pinhole”
         save_folder_path: str = None,
         render_mode: str = "RGB",
         backgrounds: torch.Tensor = None,
@@ -31,23 +33,34 @@ class GsplatRenderer:
         Returns:
             Rendered images as a tensor of shape (B, H, W, 3).
         """
+        # Process sh because gsplat expects SH coefficients with shape […, N, K, 3],
+        # where K is the number of SH coefficients.
+        shs = gaussian_params["sh"]  # (N, 3)
+        assert (
+            shs.shape[1] == sh_degree * 3
+        ), f"Expected SH shape (N, {sh_degree*3}), got {shs.shape}"
+        colors = shs.unsqueeze(-1).permute(0, 2, 1)  # (N, 1, 3)
+        print(f"sh shape: {shs.shape}, colors shape: {colors.shape}")
+
+        width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
+
         # Load precomputed camera matrices (batched if a list is provided)
         viewmats, Ks = load_camera_mapping(view_name)  # (B, 4, 4), (B, 3, 3)
         viewmats = viewmats.to(gaussian_3d.device).contiguous()
         Ks = Ks.to(gaussian_3d.device).contiguous()
-        width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
+
         num_cameras = viewmats.shape[0]
-        # backgrounds = (
-        #     torch.ones((num_cameras, 1), device=gaussian_3d.device)
-        #     if backgrounds is None
-        #     else backgrounds
-        # )
+        if backgrounds is None:
+            # Default white background
+            backgrounds = torch.ones((num_cameras, 3), device=gaussian_3d.device)
+        else:
+            backgrounds = backgrounds.to(gaussian_3d.device)
         rendered_imgs, rendered_alphas, meta = rasterization(
             means=gaussian_3d,
             quats=gaussian_params["rotation"],
             scales=gaussian_params["scales"],
             opacities=gaussian_params["alpha"],
-            colors=gaussian_params.get("sh", None),  # (N, K), usually K = 3
+            colors=colors,  # (N, K), usually K = 3
             viewmats=viewmats,
             Ks=Ks,
             width=width,

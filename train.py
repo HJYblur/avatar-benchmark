@@ -127,7 +127,7 @@ def main():
         devices=1,
         accelerator=cfg.get("train", {}).get("accelerator", "cpu"),
         precision=precision if precision else None,
-        logger=True,
+        logger=False,
     )
     logger.info("Beginning trainer.fit()")
     trainer.fit(module, datamodule=dm)
