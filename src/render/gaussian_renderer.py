@@ -15,7 +15,7 @@ class GsplatRenderer:
         gaussian_3d: torch.Tensor,
         gaussian_params: dict[str, torch.Tensor],
         view_name: Union[str, Sequence[str]],
-        sh_degree: int = 1,
+        sh_degree: int = 0,
         camera_model: str = "pinhole",  # “pinhole”, “ortho”, “fisheye”, and “ftheta”. Default is “pinhole”
         save_folder_path: str = None,
         render_mode: str = "RGB",
@@ -37,10 +37,9 @@ class GsplatRenderer:
         # where K is the number of SH coefficients.
         shs = gaussian_params["sh"]  # (N, 3)
         assert (
-            shs.shape[1] == sh_degree * 3
-        ), f"Expected SH shape (N, {sh_degree*3}), got {shs.shape}"
+            shs.shape[1] == (sh_degree + 1) * 3
+        ), f"We expected SH shape (N, {(sh_degree + 1) * 3}), got {shs.shape}"
         colors = shs.unsqueeze(-1).permute(0, 2, 1)  # (N, 1, 3)
-        print(f"sh shape: {shs.shape}, colors shape: {colors.shape}")
 
         width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
 
@@ -52,7 +51,7 @@ class GsplatRenderer:
         num_cameras = viewmats.shape[0]
         if backgrounds is None:
             # Default white background
-            backgrounds = torch.ones((num_cameras, 3), device=gaussian_3d.device)
+            backgrounds = torch.ones(3, device=gaussian_3d.device)
         else:
             backgrounds = backgrounds.to(gaussian_3d.device)
         rendered_imgs, rendered_alphas, meta = rasterization(
@@ -60,9 +59,11 @@ class GsplatRenderer:
             quats=gaussian_params["rotation"],
             scales=gaussian_params["scales"],
             opacities=gaussian_params["alpha"],
+            sh_degree=sh_degree,
             colors=colors,  # (N, K), usually K = 3
             viewmats=viewmats,
             Ks=Ks,
+            camera_model=camera_model,
             width=width,
             height=height,
             render_mode=render_mode,
