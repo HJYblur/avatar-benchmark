@@ -32,6 +32,27 @@ def load_camera_mapping(
                 payload = json.load(f)
             K = torch.tensor(payload["K"], dtype=torch.float32)
             viewmat = torch.tensor(payload["viewmat"], dtype=torch.float32)
+            # If JSON stores camera-to-world, convert to world-to-camera
+            t = payload.get("type")
+            if isinstance(t, str) and t.lower() == "c2w":
+                try:
+                    viewmat = torch.linalg.inv(viewmat)
+                except Exception:
+                    pass
+            # Adjust intrinsics if current image size differs from cached
+            try:
+                W0, H0 = payload.get("image_size", [None, None])
+                W1, H1 = get_config().get("data", {}).get("image_size", (W0, H0))
+                if W0 and H0 and W1 and H1 and (W0 != W1 or H0 != H1):
+                    sx = float(W1) / float(W0)
+                    sy = float(H1) / float(H0)
+                    # fx, fy scale with sy (derived from vertical FOV), cx scales with sx, cy with sy
+                    K[0, 0] = K[0, 0] * sy
+                    K[1, 1] = K[1, 1] * sy
+                    K[0, 2] = K[0, 2] * sx
+                    K[1, 2] = K[1, 2] * sy
+            except Exception:
+                pass
             return viewmat, K
         except Exception:
             # Fallback to on-the-fly computation when cache is missing
@@ -69,7 +90,8 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
     # camera placement for each named view.
 
     # Image size used to derive intrinsics (principal point & focal length)
-    H, W = 1024, 1024
+    width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
+    W, H = int(width), int(height)
     yfov_deg = 45.0
     yfov_rad = torch.tensor(yfov_deg * 3.141592653589793 / 180.0, dtype=torch.float32)
     # Focal length from vertical FOV: fy = H / (2 * tan(yfov/2)); fx = fy (square pixels)
