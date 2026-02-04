@@ -15,7 +15,7 @@ from src.encoder.nlf_backbone_adapter import NLFBackboneAdapter
 from src.encoder.identity_encoder import IdentityEncoder
 from src.decoder.gaussian_decoder import GaussianDecoder
 from src.render.gaussian_renderer import GsplatRenderer
-from src.training.trainer import Trainer
+from src.training.trainer import NlfGaussianModel
 from src.avatar_utils.config import load_config
 
 
@@ -104,7 +104,7 @@ def main():
     renderer = GsplatRenderer() if device != torch.device("cpu") else None
     logger.info("Renderer Initialized.")
 
-    module = Trainer(
+    module = NlfGaussianModel(
         backbone_adapter=backbone,
         identity_encoder=id_encoder,
         decoder=decoder,

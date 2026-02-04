@@ -3,6 +3,7 @@ from contextlib import nullcontext
 import logging
 from pathlib import Path
 import os
+import math
 import torch
 from torch.utils.data import DataLoader
 import lightning as L
@@ -17,7 +18,7 @@ from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
 
 
-class Trainer(L.LightningModule):
+class NlfGaussianModel(L.LightningModule):
     def __init__(
         self,
         backbone_adapter: NLFBackboneAdapter,
@@ -41,14 +42,31 @@ class Trainer(L.LightningModule):
         self.renderer = renderer
         self.train_decoder_only = train_decoder_only
 
+        # Read optimizer & scheduler settings from config and save as hyperparameters
+        train_cfg = get_config().get("train", {})
+        lr = float(train_cfg.get("lr", 1e-4))
+        wd = float(train_cfg.get("weight_decay", 0.0))
+        betas = train_cfg.get("betas", [0.9, 0.99])
+        eps = float(train_cfg.get("eps", 1e-8))
+        warmup_ratio = float(train_cfg.get("warmup_ratio", 0.05))
+        scheduler_name = train_cfg.get("scheduler", "cosine")
+        # Persist to hparams for use in configure_optimizers
+        self.save_hyperparameters({
+            "lr": lr,
+            "wd": wd,
+            "betas": betas,
+            "eps": eps,
+            "warmup_ratio": warmup_ratio,
+            "scheduler": scheduler_name,
+        })
+
         # If True, freeze all parameters except the decoder's so only decoder gets updated.
         if self.train_decoder_only:
-            # Keep module in train mode to avoid Lightning warnings, but freeze grads
-            for p in self.identity_encoder.parameters():
-                p.requires_grad = False
-
+            self.freeze_encoder()
+            self._logger.info("Frozen encoder parameters.")
+            
         self._logger.info(f"Debug mode: {self.debug}")
-        # TODO[run-pipeline]: Add args/config to control optimizer, lr, loss weights, renderer, etc.
+
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
         # Extract data from batch
@@ -181,25 +199,36 @@ class Trainer(L.LightningModule):
             loss = self._proxy_regularization_loss(gaussian_params)
         return loss
 
-    def _proxy_regularization_loss(
-        self, gaussian_params: Dict[str, torch.Tensor]
-    ) -> torch.Tensor:
-        """A simple differentiable loss on decoded gaussian parameters.
+    def freeze_encoder(self):
+        for p in self.identity_encoder.parameters():
+            p.requires_grad = False
 
-        This is used when a differentiable renderer is not available (e.g., CPU).
-        It regularizes scales and opacities to small values while keeping rotation
-        quaternions bounded. Adjust weights as needed.
-        """
-        loss = torch.tensor(0.0, device=self.device)
-        if "scales" in gaussian_params:
-            loss = loss + gaussian_params["scales"].pow(2).mean()
-        if "alpha" in gaussian_params:
-            loss = loss + 0.1 * gaussian_params["alpha"].pow(2).mean()
-        if "rotation" in gaussian_params:
-            # Encourage unit quaternions (norm ~ 1)
-            q = gaussian_params["rotation"]
-            loss = loss + 0.1 * (q.norm(dim=-1) - 1.0).pow(2).mean()
-        return loss
+    def configure_optimizers(self):
+        optimizer = torch.optim.AdamW(
+            self.decoder.parameters(),
+            lr=float(self.hparams.lr),
+            weight_decay=float(self.hparams.wd),
+            betas=tuple(self.hparams.betas) if isinstance(self.hparams.betas, (list, tuple)) else (0.9, 0.99),
+            eps=float(self.hparams.eps),
+        )
+
+        total_steps = self.trainer.estimated_stepping_batches
+        warmup_steps = int(float(self.hparams.warmup_ratio) * max(1, total_steps))
+
+        def lr_lambda(step):
+            if step < warmup_steps:
+                return step / max(1, warmup_steps)
+            progress = (step - warmup_steps) / max(1, total_steps - warmup_steps)
+            # cosine decay to zero
+            return 0.5 * (1.0 + math.cos(math.pi * progress))
+
+        scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lr_lambda)
+
+        return {
+            "optimizer": optimizer,
+            "lr_scheduler": {"scheduler": scheduler, "interval": "step"},
+        }
+
 
     def process_input(self, batch):
         """Extract tensors from the dataset batch and normalize shape/device.
@@ -292,12 +321,22 @@ class Trainer(L.LightningModule):
 
         return feats, preds
 
-    def configure_optimizers(self):
-        # TODO[run-pipeline]: Expose LR and optimizer choice via config; add scheduler if needed.
-        lr = 1e-4
-        if getattr(self, "train_decoder_only", False):
-            # Only update decoder parameters
-            optimizer = torch.optim.Adam(self.decoder.parameters(), lr=lr)
-        else:
-            optimizer = torch.optim.Adam(self.parameters(), lr=lr)
-        return optimizer
+    def _proxy_regularization_loss(
+        self, gaussian_params: Dict[str, torch.Tensor]
+    ) -> torch.Tensor:
+        """A simple differentiable loss on decoded gaussian parameters.
+
+        This is used when a differentiable renderer is not available (e.g., CPU).
+        It regularizes scales and opacities to small values while keeping rotation
+        quaternions bounded. Adjust weights as needed.
+        """
+        loss = torch.tensor(0.0, device=self.device)
+        if "scales" in gaussian_params:
+            loss = loss + gaussian_params["scales"].pow(2).mean()
+        if "alpha" in gaussian_params:
+            loss = loss + 0.1 * gaussian_params["alpha"].pow(2).mean()
+        if "rotation" in gaussian_params:
+            # Encourage unit quaternions (norm ~ 1)
+            q = gaussian_params["rotation"]
+            loss = loss + 0.1 * (q.norm(dim=-1) - 1.0).pow(2).mean()
+        return loss

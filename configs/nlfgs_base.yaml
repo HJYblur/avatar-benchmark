@@ -44,3 +44,10 @@ train:
   epochs: 1
   # Optional: fraction of data for validation split (0.0 disables val)
   val_ratio: 0.0
+  # Optimizer & scheduler settings
+  lr: 0.0001
+  weight_decay: 0.0
+  betas: [0.9, 0.99]
+  eps: 1.0e-8
+  warmup_ratio: 0.05  # fraction of total steps used for linear warmup
+  scheduler: cosine   # options: cosine
