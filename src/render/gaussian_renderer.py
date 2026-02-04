@@ -35,11 +35,12 @@ class GsplatRenderer:
         """
         # Process sh because gsplat expects SH coefficients with shape […, N, K, 3],
         # where K is the number of SH coefficients.
-        shs = gaussian_params["sh"]  # (N, K), K = (sh_degree + 1)^2 * 3
+        shs = gaussian_params["sh"]  # (N, K), K = (sh_degree + 1)^2 = 16
+        N, K = shs.shape
         assert (
-            shs.shape[1] == (self.sh_degree + 1) ** 2 * 3
+            K == (self.sh_degree + 1) ** 2 * 3
         ), f"We expected SH shape (N, {(self.sh_degree + 1) ** 2 * 3}), got {shs.shape}"
-        colors = shs.unsqueeze(-2)  # (N, 1, K)
+        colors = shs.view(N, -1, 3) # (N, K//3, 3)
 
         width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
 
@@ -48,7 +49,6 @@ class GsplatRenderer:
         viewmats = viewmats.to(gaussian_3d.device).contiguous()
         Ks = Ks.to(gaussian_3d.device).contiguous()
 
-        num_cameras = viewmats.shape[0]
         if backgrounds is None:
             # Default white background
             backgrounds = torch.ones(3, device=gaussian_3d.device)
