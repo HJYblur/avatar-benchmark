@@ -4,18 +4,18 @@ from gsplat import rasterization
 from avatar_utils.config import get_config
 from avatar_utils.camera import load_camera_mapping
 from typing import Sequence, Union
+from avatar_utils.config import get_config
 
 
 class GsplatRenderer:
     def __init__(self):
-        pass
+        self.sh_degree = get_config().get("decoder", {}).get("sh_degree", 3)
 
     def render(
         self,
         gaussian_3d: torch.Tensor,
         gaussian_params: dict[str, torch.Tensor],
         view_name: Union[str, Sequence[str]],
-        sh_degree: int = 0,
         camera_model: str = "pinhole",  # “pinhole”, “ortho”, “fisheye”, and “ftheta”. Default is “pinhole”
         save_folder_path: str = None,
         render_mode: str = "RGB",
@@ -35,11 +35,11 @@ class GsplatRenderer:
         """
         # Process sh because gsplat expects SH coefficients with shape […, N, K, 3],
         # where K is the number of SH coefficients.
-        shs = gaussian_params["sh"]  # (N, 3)
+        shs = gaussian_params["sh"]  # (N, K), K = (sh_degree + 1)^2 * 3
         assert (
-            shs.shape[1] == (sh_degree + 1) * 3
-        ), f"We expected SH shape (N, {(sh_degree + 1) * 3}), got {shs.shape}"
-        colors = shs.unsqueeze(-1).permute(0, 2, 1)  # (N, 1, 3)
+            shs.shape[1] == (self.sh_degree + 1) ** 2 * 3
+        ), f"We expected SH shape (N, {(self.sh_degree + 1) ** 2 * 3}), got {shs.shape}"
+        colors = shs.unsqueeze(-2)  # (N, 1, K)
 
         width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
 
@@ -59,7 +59,7 @@ class GsplatRenderer:
             quats=gaussian_params["rotation"],
             scales=gaussian_params["scales"],
             opacities=gaussian_params["alpha"],
-            sh_degree=sh_degree,
+            sh_degree=self.sh_degree,
             colors=colors,  # (N, K), usually K = 3
             viewmats=viewmats,
             Ks=Ks,

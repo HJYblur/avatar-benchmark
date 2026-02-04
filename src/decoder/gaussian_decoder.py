@@ -16,14 +16,15 @@ class GaussianDecoder(nn.Module):
       - sh: K spherical-harmonics coeffs (remaining dims)
     """
 
-    def __init__(self):
+    def __init__(self, debug = True):
         super().__init__()
         cfg = load_config() or {}
         dec_cfg = cfg.get("decoder", {})
 
+        self.debug = debug
         self.in_dim = int(dec_cfg.get("in_dim", 512))
         self.hidden = int(dec_cfg.get("hidden", 256))
-        self.out_dim = int(dec_cfg.get("out_dim", 11))
+        self.out_dim = int(dec_cfg.get("out_dim", 56))
         self.z_dim = int(cfg.get("identity_encoder", {}).get("latent_dim", 64))
 
         # first local block
@@ -157,9 +158,21 @@ class GaussianDecoder(nn.Module):
 
         sh = torch.tanh(sh_raw) * 0.5
 
+        self.investigate(scales, rot, alpha, sh)
+        
         return {
             "scales": scales,
             "rotation": rot,
             "alpha": alpha,
             "sh": sh,
         }
+
+    def investigate(self, scales, rotation, alpha, sh):
+        if not self.debug:
+            return
+        print(f"Scale min/max: {scales.min().item()},{scales.max().item()}, mean/std: {scales.mean().item()},{scales.std().item()} ")
+        print(f"Rotation min/max: {rotation.min().item()},{rotation.max().item()}, mean/std: {rotation.mean().item()},{rotation.std().item()} ")
+        print(f"Alpha min/max: {alpha.min().item()},{alpha.max().item()}, mean/std: {alpha.mean().item()},{alpha.std().item()} ")
+        if sh is not None:
+            print(f"SH min/max: {sh.min().item()},{sh.max().item()}, mean/std: {sh.mean().item()},{sh.std().item()} ")
+            

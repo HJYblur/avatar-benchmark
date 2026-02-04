@@ -34,7 +34,8 @@ avatar:
 decoder:
   in_dim: 512  # local feature dim
   hidden: 256
-  out_dim: 11
+  sh_degree: 3
+  out_dim: 56 # scale3 + rot4 + opacity1 + sh(degree 3), sh param = 3*(degree + 1)^2 = 48; total = 3 + 4 + 1 + 48 = 56
 
 train:
   accelerator: cpu

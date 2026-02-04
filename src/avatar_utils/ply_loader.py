@@ -296,10 +296,6 @@ def reconstruct_gaussian_avatar_as_ply(xyz, gaussian_params, template, output_pa
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     # Extract parameters
     scales = gaussian_params["scales"]
-    print(
-        f"[reconstruct_gaussian_avatar_as_ply] scales min & max: {scales.min().item()}, {scales.max().item()}"
-    )
-    scales_log = torch.log(torch.clamp(scales, min=1e-6))
     rots = gaussian_params["rotation"]
     alphas = gaussian_params["alpha"]
     shs = gaussian_params["sh"]
