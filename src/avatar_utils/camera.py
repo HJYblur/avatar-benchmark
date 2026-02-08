@@ -6,21 +6,19 @@ from typing import List, Optional, Sequence, Union
 from avatar_utils.config import get_config
 
 
-def _opengl_to_opencv_viewmat(viewmat: torch.Tensor) -> torch.Tensor:
-    """Convert OpenGL-style world-to-camera to OpenCV-style world-to-camera.
+def _flip_yz_viewmat(viewmat: torch.Tensor) -> torch.Tensor:
+    """Flip Y/Z axes in a world-to-camera matrix.
 
     OpenGL camera coordinates: +X right, +Y up, -Z forward.
     OpenCV camera coordinates: +X right, +Y down, +Z forward.
     """
-    if viewmat.ndim == 2:
-        convert = torch.tensor(
-            [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
-            dtype=viewmat.dtype,
-            device=viewmat.device,
-        )
-        return convert @ viewmat
     convert = torch.tensor(
-        [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, -1.0, 0.0, 0.0],
+            [0.0, 0.0, -1.0, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
         dtype=viewmat.dtype,
         device=viewmat.device,
     )
@@ -38,8 +36,8 @@ def load_camera_mapping(
 
     Expects JSON files under project-root/data/THuman_cameras named
     thuman_<view>.json with keys: K (3x3), viewmat (4x4), and image_size. If
-    the payload includes ``coord: "opengl"``, the view matrix is converted to
-    OpenCV-style coordinates for gsplat compatibility.
+    the payload includes ``coord`` and the render config requests a different
+    convention, the view matrix is converted between OpenGL and OpenCV style.
     """
     # Resolve project root as two levels up from this file (src/...)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -63,8 +61,15 @@ def load_camera_mapping(
                 except Exception:
                     pass
             coord = payload.get("coord", "opengl")
-            if isinstance(coord, str) and coord.lower() == "opengl":
-                viewmat = _opengl_to_opencv_viewmat(viewmat)
+            target_coord = (
+                get_config().get("render", {}).get("camera_coord", "opengl")
+            )
+            if (
+                isinstance(coord, str)
+                and isinstance(target_coord, str)
+                and coord.lower() != target_coord.lower()
+            ):
+                viewmat = _flip_yz_viewmat(viewmat)
             # Adjust intrinsics if current image size differs from cached
             try:
                 W0, H0 = payload.get("image_size", [None, None])
@@ -151,15 +156,17 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
 
     up = torch.tensor([0.0, 1.0, 0.0], dtype=torch.float32)
     # If up is parallel to direction, use Z-up
-    if torch.allclose(torch.cross(up, direction), torch.zeros(3, dtype=torch.float32)):
+    if torch.allclose(
+        torch.cross(up, direction, dim=0), torch.zeros(3, dtype=torch.float32)
+    ):
         up = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32)
 
     # Build camera-to-world pose (match look_at in preprocess)
     z = eye - center
     z = z / (torch.norm(z) + 1e-8)
-    x = torch.cross(up, z)
+    x = torch.cross(up, z, dim=0)
     x = x / (torch.norm(x) + 1e-8)
-    y = torch.cross(z, x)
+    y = torch.cross(z, x, dim=0)
 
     c2w = torch.eye(4, dtype=torch.float32)
     c2w[:3, 0] = x
@@ -169,7 +176,10 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
 
     # Extrinsics expected by rasterizer are usually world-to-camera: inverse of c2w
     w2c = torch.linalg.inv(c2w)
-    w2c = _opengl_to_opencv_viewmat(w2c).unsqueeze(0)  # (1,4,4)
+    target_coord = get_config().get("render", {}).get("camera_coord", "opengl")
+    if isinstance(target_coord, str) and target_coord.lower() == "opencv":
+        w2c = _flip_yz_viewmat(w2c)
+    w2c = w2c.unsqueeze(0)  # (1,4,4)
     return w2c, K
 
 
