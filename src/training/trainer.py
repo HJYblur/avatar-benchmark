@@ -13,7 +13,7 @@ from encoder.identity_encoder import IdentityEncoder
 from encoder.avatar_template import AvatarTemplate
 from decoder.gaussian_decoder import GaussianDecoder
 from render.gaussian_renderer import GsplatRenderer
-from training.losses import L1_loss, L2_loss
+from training.losses import LossFunctions
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
 
@@ -40,6 +40,7 @@ class NlfGaussianModel(L.LightningModule):
         self.identity_encoder = identity_encoder
         self.decoder = decoder
         self.renderer = renderer
+        self.loss_fn = LossFunctions()    
         self.train_decoder_only = train_decoder_only
 
         # Read optimizer & scheduler settings from config and save as hyperparameters
@@ -194,7 +195,7 @@ class NlfGaussianModel(L.LightningModule):
         if rendered_imgs is not None:
             preds = rendered_imgs.permute(0, 3, 1, 2)  # (B, 3, H, W)
             gt = img_float  # (B, 3, H, W)
-            loss = L2_loss(preds, gt)
+            loss = self.loss_fn(preds, gt)
         else:
             loss = self._proxy_regularization_loss(gaussian_params)
         return loss
