@@ -221,6 +221,7 @@ def generate_camera_mapping(
       - "viewmat": 4x4 world-to-camera matrix
       - "image_size": [W, H]
       - "yfov_deg": vertical field of view in degrees
+      - "coord": coordinate convention for the view matrix
 
     Args:
         output_dir: Destination directory (default: project-root/.data).
@@ -258,6 +259,7 @@ def generate_camera_mapping(
             "viewmat": w2c.tolist(),
             "image_size": [int(W), int(H)],
             "yfov_deg": float(yfov_deg),
+            "coord": "opengl",
         }
         out_path = output_dir / f"thuman_{view_name}.json"
         with open(out_path, "w", encoding="utf-8") as f:

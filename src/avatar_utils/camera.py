@@ -6,6 +6,50 @@ from typing import List, Optional, Sequence, Union
 from avatar_utils.config import get_config
 
 
+def _flip_view_axes(viewmat: torch.Tensor, flip_y: bool, flip_z: bool) -> torch.Tensor:
+    """Flip selected axes in a world-to-camera matrix.
+
+    OpenGL camera coordinates: +X right, +Y up, -Z forward.
+    OpenCV camera coordinates: +X right, +Y down, +Z forward.
+    """
+    y = -1.0 if flip_y else 1.0
+    z = -1.0 if flip_z else 1.0
+    convert = torch.tensor(
+        [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, y, 0.0, 0.0],
+            [0.0, 0.0, z, 0.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ],
+        dtype=viewmat.dtype,
+        device=viewmat.device,
+    )
+    return convert @ viewmat
+
+
+def _target_camera_axes() -> tuple[bool, bool]:
+    """Return flips for Y/Z to reach the target camera convention.
+
+    Defaults to OpenGL (Y up, -Z forward). If render.camera_coord is set to
+    "opencv", we flip both Y and Z. If render.camera_forward is "+z", we flip Z;
+    if render.camera_up is "-y", we flip Y. Explicit axes override coord.
+    """
+    render_cfg = get_config().get("render", {})
+    coord = render_cfg.get("camera_coord")
+    flip_y = False
+    flip_z = False
+    if isinstance(coord, str) and coord.lower() == "opencv":
+        flip_y = True
+        flip_z = True
+    forward = render_cfg.get("camera_forward")
+    if isinstance(forward, str):
+        flip_z = forward.strip().lower() in {"+z", "posz", "positive_z"}
+    up = render_cfg.get("camera_up")
+    if isinstance(up, str):
+        flip_y = up.strip().lower() in {"-y", "negy", "negative_y"}
+    return flip_y, flip_z
+
+
 def load_camera_mapping(
     view_name: Union[str, Sequence[str]],
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -16,7 +60,9 @@ def load_camera_mapping(
     is missing or unreadable, falls back to computed values for that view.
 
     Expects JSON files under project-root/data/THuman_cameras named
-    thuman_<view>.json with keys: K (3x3), viewmat (4x4), and image_size.
+    thuman_<view>.json with keys: K (3x3), viewmat (4x4), and image_size. If
+    the payload includes ``coord`` and the render config requests a different
+    convention, the view matrix is converted between conventions.
     """
     # Resolve project root as two levels up from this file (src/...)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -39,6 +85,13 @@ def load_camera_mapping(
                     viewmat = torch.linalg.inv(viewmat)
                 except Exception:
                     pass
+            coord = payload.get("coord", "opengl")
+            flip_y, flip_z = _target_camera_axes()
+            if isinstance(coord, str) and coord.lower() == "opencv":
+                flip_y = not flip_y
+                flip_z = not flip_z
+            if flip_y or flip_z:
+                viewmat = _flip_view_axes(viewmat, flip_y=flip_y, flip_z=flip_z)
             # Adjust intrinsics if current image size differs from cached
             try:
                 W0, H0 = payload.get("image_size", [None, None])
@@ -46,8 +99,7 @@ def load_camera_mapping(
                 if W0 and H0 and W1 and H1 and (W0 != W1 or H0 != H1):
                     sx = float(W1) / float(W0)
                     sy = float(H1) / float(H0)
-                    # fx, fy scale with sy (derived from vertical FOV), cx scales with sx, cy with sy
-                    K[0, 0] = K[0, 0] * sy
+                    K[0, 0] = K[0, 0] * sx
                     K[1, 1] = K[1, 1] * sy
                     K[0, 2] = K[0, 2] * sx
                     K[1, 2] = K[1, 2] * sy
@@ -126,15 +178,17 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
 
     up = torch.tensor([0.0, 1.0, 0.0], dtype=torch.float32)
     # If up is parallel to direction, use Z-up
-    if torch.allclose(torch.cross(up, direction), torch.zeros(3, dtype=torch.float32)):
+    if torch.allclose(
+        torch.cross(up, direction, dim=0), torch.zeros(3, dtype=torch.float32)
+    ):
         up = torch.tensor([0.0, 0.0, 1.0], dtype=torch.float32)
 
     # Build camera-to-world pose (match look_at in preprocess)
     z = eye - center
     z = z / (torch.norm(z) + 1e-8)
-    x = torch.cross(up, z)
+    x = torch.cross(up, z, dim=0)
     x = x / (torch.norm(x) + 1e-8)
-    y = torch.cross(z, x)
+    y = torch.cross(z, x, dim=0)
 
     c2w = torch.eye(4, dtype=torch.float32)
     c2w[:3, 0] = x
@@ -143,7 +197,11 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
     c2w[:3, 3] = eye
 
     # Extrinsics expected by rasterizer are usually world-to-camera: inverse of c2w
-    w2c = torch.linalg.inv(c2w).unsqueeze(0)  # (1,4,4)
+    w2c = torch.linalg.inv(c2w)
+    flip_y, flip_z = _target_camera_axes()
+    if flip_y or flip_z:
+        w2c = _flip_view_axes(w2c, flip_y=flip_y, flip_z=flip_z)
+    w2c = w2c.unsqueeze(0)  # (1,4,4)
     return w2c, K
 
 
