@@ -6,23 +6,48 @@ from typing import List, Optional, Sequence, Union
 from avatar_utils.config import get_config
 
 
-def _flip_yz_viewmat(viewmat: torch.Tensor) -> torch.Tensor:
-    """Flip Y/Z axes in a world-to-camera matrix.
+def _flip_view_axes(viewmat: torch.Tensor, flip_y: bool, flip_z: bool) -> torch.Tensor:
+    """Flip selected axes in a world-to-camera matrix.
 
     OpenGL camera coordinates: +X right, +Y up, -Z forward.
     OpenCV camera coordinates: +X right, +Y down, +Z forward.
     """
+    y = -1.0 if flip_y else 1.0
+    z = -1.0 if flip_z else 1.0
     convert = torch.tensor(
         [
             [1.0, 0.0, 0.0, 0.0],
-            [0.0, -1.0, 0.0, 0.0],
-            [0.0, 0.0, -1.0, 0.0],
+            [0.0, y, 0.0, 0.0],
+            [0.0, 0.0, z, 0.0],
             [0.0, 0.0, 0.0, 1.0],
         ],
         dtype=viewmat.dtype,
         device=viewmat.device,
     )
     return convert @ viewmat
+
+
+def _target_camera_axes() -> tuple[bool, bool]:
+    """Return flips for Y/Z to reach the target camera convention.
+
+    Defaults to OpenGL (Y up, -Z forward). If render.camera_coord is set to
+    "opencv", we flip both Y and Z. If render.camera_forward is "+z", we flip Z;
+    if render.camera_up is "-y", we flip Y. Explicit axes override coord.
+    """
+    render_cfg = get_config().get("render", {})
+    coord = render_cfg.get("camera_coord")
+    flip_y = False
+    flip_z = False
+    if isinstance(coord, str) and coord.lower() == "opencv":
+        flip_y = True
+        flip_z = True
+    forward = render_cfg.get("camera_forward")
+    if isinstance(forward, str):
+        flip_z = forward.strip().lower() in {"+z", "posz", "positive_z"}
+    up = render_cfg.get("camera_up")
+    if isinstance(up, str):
+        flip_y = up.strip().lower() in {"-y", "negy", "negative_y"}
+    return flip_y, flip_z
 
 
 def load_camera_mapping(
@@ -37,7 +62,7 @@ def load_camera_mapping(
     Expects JSON files under project-root/data/THuman_cameras named
     thuman_<view>.json with keys: K (3x3), viewmat (4x4), and image_size. If
     the payload includes ``coord`` and the render config requests a different
-    convention, the view matrix is converted between OpenGL and OpenCV style.
+    convention, the view matrix is converted between conventions.
     """
     # Resolve project root as two levels up from this file (src/...)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -61,15 +86,12 @@ def load_camera_mapping(
                 except Exception:
                     pass
             coord = payload.get("coord", "opengl")
-            target_coord = (
-                get_config().get("render", {}).get("camera_coord", "opengl")
-            )
-            if (
-                isinstance(coord, str)
-                and isinstance(target_coord, str)
-                and coord.lower() != target_coord.lower()
-            ):
-                viewmat = _flip_yz_viewmat(viewmat)
+            flip_y, flip_z = _target_camera_axes()
+            if isinstance(coord, str) and coord.lower() == "opencv":
+                flip_y = not flip_y
+                flip_z = not flip_z
+            if flip_y or flip_z:
+                viewmat = _flip_view_axes(viewmat, flip_y=flip_y, flip_z=flip_z)
             # Adjust intrinsics if current image size differs from cached
             try:
                 W0, H0 = payload.get("image_size", [None, None])
@@ -176,9 +198,9 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
 
     # Extrinsics expected by rasterizer are usually world-to-camera: inverse of c2w
     w2c = torch.linalg.inv(c2w)
-    target_coord = get_config().get("render", {}).get("camera_coord", "opengl")
-    if isinstance(target_coord, str) and target_coord.lower() == "opencv":
-        w2c = _flip_yz_viewmat(w2c)
+    flip_y, flip_z = _target_camera_axes()
+    if flip_y or flip_z:
+        w2c = _flip_view_axes(w2c, flip_y=flip_y, flip_z=flip_z)
     w2c = w2c.unsqueeze(0)  # (1,4,4)
     return w2c, K
 
