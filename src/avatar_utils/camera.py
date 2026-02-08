@@ -6,6 +6,27 @@ from typing import List, Optional, Sequence, Union
 from avatar_utils.config import get_config
 
 
+def _opengl_to_opencv_viewmat(viewmat: torch.Tensor) -> torch.Tensor:
+    """Convert OpenGL-style world-to-camera to OpenCV-style world-to-camera.
+
+    OpenGL camera coordinates: +X right, +Y up, -Z forward.
+    OpenCV camera coordinates: +X right, +Y down, +Z forward.
+    """
+    if viewmat.ndim == 2:
+        convert = torch.tensor(
+            [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+            dtype=viewmat.dtype,
+            device=viewmat.device,
+        )
+        return convert @ viewmat
+    convert = torch.tensor(
+        [[1.0, 0.0, 0.0, 0.0], [0.0, -1.0, 0.0, 0.0], [0.0, 0.0, -1.0, 0.0], [0.0, 0.0, 0.0, 1.0]],
+        dtype=viewmat.dtype,
+        device=viewmat.device,
+    )
+    return convert @ viewmat
+
+
 def load_camera_mapping(
     view_name: Union[str, Sequence[str]],
 ) -> tuple[torch.Tensor, torch.Tensor]:
@@ -16,7 +37,9 @@ def load_camera_mapping(
     is missing or unreadable, falls back to computed values for that view.
 
     Expects JSON files under project-root/data/THuman_cameras named
-    thuman_<view>.json with keys: K (3x3), viewmat (4x4), and image_size.
+    thuman_<view>.json with keys: K (3x3), viewmat (4x4), and image_size. If
+    the payload includes ``coord: "opengl"``, the view matrix is converted to
+    OpenCV-style coordinates for gsplat compatibility.
     """
     # Resolve project root as two levels up from this file (src/...)
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -39,6 +62,9 @@ def load_camera_mapping(
                     viewmat = torch.linalg.inv(viewmat)
                 except Exception:
                     pass
+            coord = payload.get("coord", "opengl")
+            if isinstance(coord, str) and coord.lower() == "opengl":
+                viewmat = _opengl_to_opencv_viewmat(viewmat)
             # Adjust intrinsics if current image size differs from cached
             try:
                 W0, H0 = payload.get("image_size", [None, None])
@@ -46,8 +72,7 @@ def load_camera_mapping(
                 if W0 and H0 and W1 and H1 and (W0 != W1 or H0 != H1):
                     sx = float(W1) / float(W0)
                     sy = float(H1) / float(H0)
-                    # fx, fy scale with sy (derived from vertical FOV), cx scales with sx, cy with sy
-                    K[0, 0] = K[0, 0] * sy
+                    K[0, 0] = K[0, 0] * sx
                     K[1, 1] = K[1, 1] * sy
                     K[0, 2] = K[0, 2] * sx
                     K[1, 2] = K[1, 2] * sy
@@ -143,7 +168,8 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
     c2w[:3, 3] = eye
 
     # Extrinsics expected by rasterizer are usually world-to-camera: inverse of c2w
-    w2c = torch.linalg.inv(c2w).unsqueeze(0)  # (1,4,4)
+    w2c = torch.linalg.inv(c2w)
+    w2c = _opengl_to_opencv_viewmat(w2c).unsqueeze(0)  # (1,4,4)
     return w2c, K
 
 
