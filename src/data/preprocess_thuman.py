@@ -59,6 +59,7 @@ def look_at(eye: np.ndarray, target: np.ndarray, up: np.ndarray) -> np.ndarray:
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "THuman_2.0"
 OUT_ROOT = Path(__file__).resolve().parents[2] / "processed"
 IMAGE_SIZE = (1024, 1024)
+MESH_SCALE = 2.5  # Scale meshes to reasonable size (THuman scans are ~0.6-0.9m, scale to ~1.5-2.25m)
 VIEWPOINTS = {
     "front": np.array([0.0, 0.0, 1.0]),
     "back": np.array([0.0, 0.0, -1.0]),
@@ -166,12 +167,17 @@ def _render_views(
     texture_path: Path | None,
     identity: str,
 ):
-    # No normalization - render meshes as-is in their original coordinate frame
-    # NLF outputs SMPL-X in canonical space, so we want training data to match that scale
-    
-    # Build scene with original meshes (not normalized)
-    scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
+    # Scale meshes to reasonable size for rendering
+    # THuman scans are physically small (~0.6-0.9m), scale them up for better framing
+    scaled_meshes = []
     for m in meshes:
+        m_scaled = m.copy()
+        m_scaled.apply_scale(MESH_SCALE)
+        scaled_meshes.append(m_scaled)
+    
+    # Build scene with scaled meshes
+    scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
+    for m in scaled_meshes:
         scene.add(_mesh_to_pyrender(m, texture_path))
 
     # Canonical global cameras: look at origin with fixed distance

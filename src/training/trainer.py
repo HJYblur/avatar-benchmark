@@ -17,6 +17,10 @@ from training.losses import LossFunctions
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
 
+# Scale factor to match preprocessing mesh scaling
+# THuman scans are ~0.6-0.9m tall, we scale them to ~1.5-2.25m for better framing
+MESH_SCALE = 2.5
+
 
 class NlfGaussianModel(L.LightningModule):
     def __init__(
@@ -161,12 +165,13 @@ class NlfGaussianModel(L.LightningModule):
             )
 
         if self.device.type == "cuda":
-            # No normalization needed - both preprocessing and NLF use canonical SMPL-X scale
-            # Gaussians are positioned on SMPL-X vertices which match the training data scale
-            gaussian_3d_norm = gaussian_3d[0]
+            # Apply same scaling as preprocessing to match mesh scale
+            # NLF outputs SMPL-X vertices in canonical space (~2.5m tall human)
+            # THuman preprocessing scales meshes by MESH_SCALE, so we do the same here
+            gaussian_3d_norm = gaussian_3d[0] * MESH_SCALE
             
             if self.debug:
-                self._logger.debug(f"Gaussian_3d stats: min={gaussian_3d_norm.min(dim=0)[0]}, max={gaussian_3d_norm.max(dim=0)[0]}, mean={gaussian_3d_norm.mean(dim=0)}")
+                self._logger.debug(f"Gaussian_3d stats (after {MESH_SCALE}x scaling): min={gaussian_3d_norm.min(dim=0)[0]}, max={gaussian_3d_norm.max(dim=0)[0]}, mean={gaussian_3d_norm.mean(dim=0)}")
                 self._logger.debug(f"Gaussian params - sh range: [{gaussian_params['sh'].min():.3f}, {gaussian_params['sh'].max():.3f}]")
                 self._logger.debug(f"Gaussian params - alpha: mean={gaussian_params['alpha'].mean():.3f}, std={gaussian_params['alpha'].std():.3f}")
                 self._logger.debug(f"Gaussian params - scales range: [{gaussian_params['scales'].min():.3f}, {gaussian_params['scales'].max():.3f}]")
