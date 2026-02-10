@@ -16,6 +16,7 @@ from render.gaussian_renderer import GsplatRenderer
 from training.losses import LossFunctions
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
+from avatar_utils.camera import load_normalization, apply_normalization
 
 
 class NlfGaussianModel(L.LightningModule):
@@ -161,12 +162,20 @@ class NlfGaussianModel(L.LightningModule):
             )
 
         if self.device.type == "cuda":
+            # Load normalization and apply to Gaussians before rendering
+            try:
+                center, radius = load_normalization(subject)
+                gaussian_3d_norm = apply_normalization(gaussian_3d[0], center, radius)
+            except Exception as e:
+                self._logger.warning(f"Could not normalize Gaussians for {subject}: {e}; using unnormalized coords")
+                gaussian_3d_norm = gaussian_3d[0]
+            
             save_path = (
                 Path(get_config().get("render", {}).get("save_path", "output"))
                 / subject
             )
             rendered_imgs = self.renderer.render(
-                gaussian_3d=gaussian_3d[0],
+                gaussian_3d=gaussian_3d_norm,
                 gaussian_params=gaussian_params,
                 view_name=view_names,
                 save_folder_path=save_path,

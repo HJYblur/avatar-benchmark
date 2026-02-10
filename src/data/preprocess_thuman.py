@@ -166,36 +166,62 @@ def _render_views(
     texture_path: Path | None,
     identity: str,
 ):
-    scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
-    for m in meshes:
-        scene.add(_mesh_to_pyrender(m, texture_path))
-
-    # Compute a bounding box from all meshes for camera framing
+    # Compute normalization from original meshes' bounds
     if len(meshes) == 0:
         return
-    # Compute global bounds across all meshes
     mins = np.array([m.bounds[0] for m in meshes])  # (M,3)
     maxs = np.array([m.bounds[1] for m in meshes])  # (M,3)
     bbox_min = mins.min(axis=0)
     bbox_max = maxs.max(axis=0)
     center = (bbox_min + bbox_max) / 2.0
     radius = float(np.linalg.norm(bbox_max - bbox_min)) / 2.0
+    scale = 1.0 / (radius + 1e-8)
 
+    # Save normalization metadata for downstream (Gaussians, SMPL, etc.)
+    os.makedirs(out_dir, exist_ok=True)
+    norm_path = out_dir / "norm.json"
+    try:
+        with open(norm_path, "w", encoding="utf-8") as f:
+            json.dump({"center": center.tolist(), "radius": float(radius), "scale": float(scale)}, f, indent=2)
+    except Exception as e:
+        print(f"Warning: could not save norm.json for {identity}: {e}")
+
+    # Apply normalization to all meshes: translate by -center, scale by 1/radius
+    normed_meshes: list[trimesh.Trimesh] = []
+    for m in meshes:
+        m_norm = m.copy()
+        m_norm.apply_translation(-center)
+        m_norm.apply_scale(scale)
+        normed_meshes.append(m_norm)
+
+    # Build scene with normalized meshes
+    scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
+    for m in normed_meshes:
+        scene.add(_mesh_to_pyrender(m, texture_path))
+
+    # Canonical global cameras: look at origin with fixed distance
     camera = pyrender.PerspectiveCamera(yfov=np.deg2rad(45.0))
     light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
 
     renderer = pyrender.OffscreenRenderer(*IMAGE_SIZE)
     try:
+        origin = np.zeros(3, dtype=float)
+        up_default = np.array([0.0, 1.0, 0.0], dtype=float)
+        distance = 2.5
         for name, direction in VIEWPOINTS.items():
-            pose = _camera_pose(direction, center, radius)
+            # Ensure up is not parallel to view direction
+            up = up_default.copy()
+            if np.allclose(np.cross(up, direction), 0.0):
+                up = np.array([0.0, 0.0, 1.0], dtype=float)
+            eye = direction * distance
+            pose = look_at(eye=eye, target=origin, up=up)
+
             cam_node = scene.add(camera, pose=pose)
             light_node = scene.add(light, pose=pose)
 
             color, depth = renderer.render(scene)
-            # Save color image with identity + view in the filename
             Image.fromarray(color).save(out_dir / f"{identity}_{name}.png")
 
-            # Generate a foreground mask from depth (valid, >0)
             if depth is not None:
                 mask_bool = np.isfinite(depth) & (depth > 0)
                 mask_img = mask_bool.astype(np.uint8) * 255

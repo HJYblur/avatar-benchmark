@@ -3,7 +3,50 @@ import json
 import trimesh
 import torch
 from typing import List, Optional, Sequence, Union
+from pathlib import Path
 from avatar_utils.config import get_config
+
+
+def load_normalization(identity: str, processed_root: str = None) -> tuple[torch.Tensor, float]:
+    """Load per-identity normalization (center, radius) from processed/<id>/norm.json.
+    
+    Args:
+        identity: Subject identifier (folder name).
+        processed_root: Path to processed data root (default from config).
+    
+    Returns:
+        center: (3,) tensor with original bbox center.
+        radius: float with original bbox radius.
+    """
+    if processed_root is None:
+        processed_root = get_config().get("data", {}).get("root", "processed")
+    norm_path = Path(processed_root) / identity / "norm.json"
+    try:
+        with open(norm_path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        center = torch.tensor(payload["center"], dtype=torch.float32)
+        radius = float(payload["radius"])
+        return center, radius
+    except Exception as e:
+        # Fallback: return identity transform (no normalization)
+        print(f"Warning: could not load normalization for {identity}: {e}")
+        return torch.zeros(3, dtype=torch.float32), 1.0
+
+
+def apply_normalization(xyz: torch.Tensor, center: torch.Tensor, radius: float) -> torch.Tensor:
+    """Apply the same normalization to world-space coordinates as used in preprocessing.
+    
+    Args:
+        xyz: (N, 3) or (B, N, 3) tensor of 3D positions.
+        center: (3,) tensor with bbox center to subtract.
+        radius: scalar bbox radius for scaling.
+    
+    Returns:
+        xyz_norm: normalized coordinates (same shape as input).
+    """
+    scale = 1.0 / (radius + 1e-8)
+    center = center.to(xyz.device)
+    return (xyz - center) * scale
 
 
 def load_camera_mapping(
