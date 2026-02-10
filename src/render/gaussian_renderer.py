@@ -81,6 +81,7 @@ class GsplatRenderer:
 
             # Save all rendered images with view names
             view_list = [view_name] if isinstance(view_name, str) else list(view_name)
+            print(f"Saving {len(view_list)} rendered views: {view_list}")
             for idx, vname in enumerate(view_list):
                 out_file = out_dir / f"debug_{vname}.png"
                 sample_img = (
@@ -88,4 +89,5 @@ class GsplatRenderer:
                 )  # (3, H, W)
                 img_to_save = convert_image_dtype(sample_img.clamp(0, 1), dtype=torch.uint8)
                 write_png(img_to_save, str(out_file))
+                print(f"  Saved: {out_file}")
         return rendered_imgs  # (B, H, W, 3) where B=len(view_name) if list

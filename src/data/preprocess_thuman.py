@@ -182,7 +182,7 @@ def _render_views(
     try:
         origin = np.zeros(3, dtype=float)
         up_default = np.array([0.0, 1.0, 0.0], dtype=float)
-        distance = 2.5
+        distance = 2.0  # Closer camera for better framing
         for name, direction in VIEWPOINTS.items():
             # Ensure up is not parallel to view direction
             up = up_default.copy()
@@ -212,7 +212,7 @@ def generate_camera_mapping(
     output_dir: Path | None = None,
     image_size: tuple[int, int] = IMAGE_SIZE,
     yfov_deg: float = 45.0,
-    distance: float = 2.5,
+    distance: float = 2.0,  # Changed to 2.0 to match rendering
 ) -> None:
     """Generate and store camera intrinsics & extrinsics for THuman views.
 
