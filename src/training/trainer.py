@@ -16,7 +16,6 @@ from render.gaussian_renderer import GsplatRenderer
 from training.losses import LossFunctions
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
-from avatar_utils.camera import load_normalization, apply_normalization
 
 
 class NlfGaussianModel(L.LightningModule):
@@ -162,17 +161,15 @@ class NlfGaussianModel(L.LightningModule):
             )
 
         if self.device.type == "cuda":
-            # NOTE: Do NOT apply THuman normalization to Gaussians!
-            # Gaussians are based on SMPL-X mesh which has different bbox than THuman scan.
-            # Applying THuman normalization causes coordinate frame mismatch.
-            # TODO: Either remove normalization from preprocessing, or use SMPL-X bbox
+            # No normalization needed - both preprocessing and NLF use canonical SMPL-X scale
+            # Gaussians are positioned on SMPL-X vertices which match the training data scale
             gaussian_3d_norm = gaussian_3d[0]
             
             if self.debug:
                 self._logger.debug(f"Gaussian_3d stats: min={gaussian_3d_norm.min(dim=0)[0]}, max={gaussian_3d_norm.max(dim=0)[0]}, mean={gaussian_3d_norm.mean(dim=0)}")
-                self._logger.debug(f"Gaussian params - sh: min={gaussian_params['sh'].min()}, max={gaussian_params['sh'].max()}")
-                self._logger.debug(f"Gaussian params - alpha: min={gaussian_params['alpha'].min()}, max={gaussian_params['alpha'].max()}, mean={gaussian_params['alpha'].mean()}")
-                self._logger.debug(f"Gaussian params - scales: min={gaussian_params['scales'].min()}, max={gaussian_params['scales'].max()}")
+                self._logger.debug(f"Gaussian params - sh range: [{gaussian_params['sh'].min():.3f}, {gaussian_params['sh'].max():.3f}]")
+                self._logger.debug(f"Gaussian params - alpha: mean={gaussian_params['alpha'].mean():.3f}, std={gaussian_params['alpha'].std():.3f}")
+                self._logger.debug(f"Gaussian params - scales range: [{gaussian_params['scales'].min():.3f}, {gaussian_params['scales'].max():.3f}]")
             
             save_path = (
                 Path(get_config().get("render", {}).get("save_path", "output"))

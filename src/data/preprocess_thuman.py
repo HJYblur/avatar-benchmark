@@ -166,37 +166,12 @@ def _render_views(
     texture_path: Path | None,
     identity: str,
 ):
-    # Compute normalization from original meshes' bounds
-    if len(meshes) == 0:
-        return
-    mins = np.array([m.bounds[0] for m in meshes])  # (M,3)
-    maxs = np.array([m.bounds[1] for m in meshes])  # (M,3)
-    bbox_min = mins.min(axis=0)
-    bbox_max = maxs.max(axis=0)
-    center = (bbox_min + bbox_max) / 2.0
-    radius = float(np.linalg.norm(bbox_max - bbox_min)) / 2.0
-    scale = 1.0 / (radius + 1e-8)
-
-    # Save normalization metadata for downstream (Gaussians, SMPL, etc.)
-    os.makedirs(out_dir, exist_ok=True)
-    norm_path = out_dir / "norm.json"
-    try:
-        with open(norm_path, "w", encoding="utf-8") as f:
-            json.dump({"center": center.tolist(), "radius": float(radius), "scale": float(scale)}, f, indent=2)
-    except Exception as e:
-        print(f"Warning: could not save norm.json for {identity}: {e}")
-
-    # Apply normalization to all meshes: translate by -center, scale by 1/radius
-    normed_meshes: list[trimesh.Trimesh] = []
-    for m in meshes:
-        m_norm = m.copy()
-        m_norm.apply_translation(-center)
-        m_norm.apply_scale(scale)
-        normed_meshes.append(m_norm)
-
-    # Build scene with normalized meshes
+    # No normalization - render meshes as-is in their original coordinate frame
+    # NLF outputs SMPL-X in canonical space, so we want training data to match that scale
+    
+    # Build scene with original meshes (not normalized)
     scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
-    for m in normed_meshes:
+    for m in meshes:
         scene.add(_mesh_to_pyrender(m, texture_path))
 
     # Canonical global cameras: look at origin with fixed distance
