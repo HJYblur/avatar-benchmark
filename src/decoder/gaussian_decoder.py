@@ -16,7 +16,7 @@ class GaussianDecoder(nn.Module):
       - sh: K spherical-harmonics coeffs (remaining dims)
     """
 
-    def __init__(self, debug = True):
+    def __init__(self, debug = False):
         super().__init__()
         cfg = load_config() or {}
         dec_cfg = cfg.get("decoder", {})
