@@ -59,6 +59,10 @@ def look_at(eye: np.ndarray, target: np.ndarray, up: np.ndarray) -> np.ndarray:
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "THuman_2.0"
 OUT_ROOT = Path(__file__).resolve().parents[2] / "processed"
 IMAGE_SIZE = (1024, 1024)
+# Scale THuman meshes (~0.64m) to match SMPL-X canonical size (~1.72m)
+# This ensures training images have same scale as SMPL-X Gaussians from NLF
+# 1.72 / 0.64 ≈ 2.7, we use 2.5 to leave some margin and avoid cropping
+MESH_SCALE = 2.5
 VIEWPOINTS = {
     "front": np.array([0.0, 0.0, 1.0]),
     "back": np.array([0.0, 0.0, -1.0]),
@@ -149,48 +153,50 @@ def _mesh_to_pyrender(
     return pyrender.Mesh.from_trimesh(mesh, smooth=False)
 
 
-def _camera_pose(
-    direction: np.ndarray, distance: float = 2.0
-) -> np.ndarray:
-    """Create camera pose at fixed distance from origin, looking at origin.
-    
-    Uses canonical camera positions (no per-mesh normalization) to match
-    the camera positions stored in JSON files for training.
-    """
-    center = np.zeros(3, dtype=float)
-    eye = center + direction * distance
-    up = np.array([0.0, 1.0, 0.0])
-    if np.allclose(np.cross(up, direction), 0.0):
-        up = np.array([0.0, 0.0, 1.0])
-    return look_at(eye, center, up)
-
-
 def _render_views(
     meshes: list[trimesh.Trimesh],
     out_dir: Path,
     texture_path: Path | None,
     identity: str,
 ):
-    """Render meshes from canonical camera positions without normalization.
+    """Render THuman meshes from canonical camera positions.
     
-    Meshes are rendered in their original coordinate frame to match the
-    SMPL-X coordinate system used by NLF during training.
+    Scale meshes to match SMPL-X size and render from fixed camera positions
+    to ensure consistency with training data.
     """
-    scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
+    # Scale meshes to reasonable size for rendering
+    # THuman scans are physically small (~0.6-0.9m), scale them up for better framing
+    scaled_meshes = []
     for m in meshes:
+        m_scaled = m.copy()
+        m_scaled.apply_scale(MESH_SCALE)
+        scaled_meshes.append(m_scaled)
+    
+    # Build scene with scaled meshes
+    scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
+    for m in scaled_meshes:
         scene.add(_mesh_to_pyrender(m, texture_path))
 
-    # Use canonical camera positions (fixed distance from origin)
-    distance = 2.0
+    # Canonical global cameras: look at origin with fixed distance
     camera = pyrender.PerspectiveCamera(yfov=np.deg2rad(45.0))
     light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
 
     renderer = pyrender.OffscreenRenderer(*IMAGE_SIZE)
     try:
+        origin = np.zeros(3, dtype=float)
+        up_default = np.array([0.0, 1.0, 0.0], dtype=float)
+        distance = 2.0  # Closer camera for better framing
+        
         for name, direction in VIEWPOINTS.items():
-            pose = _camera_pose(direction, distance)
-            cam_node = scene.add(camera, pose=pose)
-            light_node = scene.add(light, pose=pose)
+            # Ensure up is not parallel to view direction
+            up = up_default.copy()
+            if np.allclose(np.cross(up, direction), 0.0):
+                up = np.array([0.0, 0.0, 1.0], dtype=float)
+            
+            eye = origin + direction * distance
+            c2w = look_at(eye, origin, up)
+            cam_node = scene.add(camera, pose=c2w)
+            light_node = scene.add(light, pose=c2w)
 
             color, depth = renderer.render(scene)
             # Save color image with identity + view in the filename
@@ -212,7 +218,7 @@ def generate_camera_mapping(
     output_dir: Path | None = None,
     image_size: tuple[int, int] = IMAGE_SIZE,
     yfov_deg: float = 45.0,
-    distance: float = 2.0,
+    distance: float = 2.0,  # Changed to 2.0 to match rendering
 ) -> None:
     """Generate and store camera intrinsics & extrinsics for THuman views.
 
