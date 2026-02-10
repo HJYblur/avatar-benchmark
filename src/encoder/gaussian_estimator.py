@@ -107,7 +107,15 @@ class AvatarGaussianEstimator(nn.Module):
         cached = pred.get("_vertices3d_stack")
         if cached is None:
             v3d_list = pred["vertices3d"]  # A list of length B with (P, Nv, 3)
-            cached = torch.stack([v3d_raw[0] for v3d_raw in v3d_list], dim=0)
+            cached = torch.stack([v3d_raw[0] for v3d_raw in v3d_list], dim=0)  # (B, Nv, 3)
+            
+            # Center vertices to match THuman mesh centering
+            # SMPL-X from NLF may have translation in all dimensions (X, Y, Z)
+            # Subtract mean in all dimensions to center at origin, matching how THuman meshes are positioned
+            for b in range(cached.shape[0]):
+                vertex_mean = cached[b].mean(dim=0)  # (3,) - mean for each dimension
+                cached[b] = cached[b] - vertex_mean  # Center all dimensions
+            
             pred["_vertices3d_stack"] = cached  # (B, Nv, 3)
         return cached.to(device=device)
 
