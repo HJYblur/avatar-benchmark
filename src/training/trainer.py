@@ -162,13 +162,17 @@ class NlfGaussianModel(L.LightningModule):
             )
 
         if self.device.type == "cuda":
-            # Load normalization and apply to Gaussians before rendering
-            try:
-                center, radius = load_normalization(subject)
-                gaussian_3d_norm = apply_normalization(gaussian_3d[0], center, radius)
-            except Exception as e:
-                self._logger.warning(f"Could not normalize Gaussians for {subject}: {e}; using unnormalized coords")
-                gaussian_3d_norm = gaussian_3d[0]
+            # NOTE: Do NOT apply THuman normalization to Gaussians!
+            # Gaussians are based on SMPL-X mesh which has different bbox than THuman scan.
+            # Applying THuman normalization causes coordinate frame mismatch.
+            # TODO: Either remove normalization from preprocessing, or use SMPL-X bbox
+            gaussian_3d_norm = gaussian_3d[0]
+            
+            if self.debug:
+                self._logger.debug(f"Gaussian_3d stats: min={gaussian_3d_norm.min(dim=0)[0]}, max={gaussian_3d_norm.max(dim=0)[0]}, mean={gaussian_3d_norm.mean(dim=0)}")
+                self._logger.debug(f"Gaussian params - sh: min={gaussian_params['sh'].min()}, max={gaussian_params['sh'].max()}")
+                self._logger.debug(f"Gaussian params - alpha: min={gaussian_params['alpha'].min()}, max={gaussian_params['alpha'].max()}, mean={gaussian_params['alpha'].mean()}")
+                self._logger.debug(f"Gaussian params - scales: min={gaussian_params['scales'].min()}, max={gaussian_params['scales'].max()}")
             
             save_path = (
                 Path(get_config().get("render", {}).get("save_path", "output"))
