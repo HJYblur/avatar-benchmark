@@ -150,9 +150,14 @@ def _mesh_to_pyrender(
 
 
 def _camera_pose(
-    direction: np.ndarray, center: np.ndarray, radius: float
+    direction: np.ndarray, distance: float = 2.0
 ) -> np.ndarray:
-    distance = radius * 2.5
+    """Create camera pose at fixed distance from origin, looking at origin.
+    
+    Uses canonical camera positions (no per-mesh normalization) to match
+    the camera positions stored in JSON files for training.
+    """
+    center = np.zeros(3, dtype=float)
     eye = center + direction * distance
     up = np.array([0.0, 1.0, 0.0])
     if np.allclose(np.cross(up, direction), 0.0):
@@ -166,28 +171,24 @@ def _render_views(
     texture_path: Path | None,
     identity: str,
 ):
+    """Render meshes from canonical camera positions without normalization.
+    
+    Meshes are rendered in their original coordinate frame to match the
+    SMPL-X coordinate system used by NLF during training.
+    """
     scene = pyrender.Scene(bg_color=[255, 255, 255, 0], ambient_light=[0.3, 0.3, 0.3])
     for m in meshes:
         scene.add(_mesh_to_pyrender(m, texture_path))
 
-    # Compute a bounding box from all meshes for camera framing
-    if len(meshes) == 0:
-        return
-    # Compute global bounds across all meshes
-    mins = np.array([m.bounds[0] for m in meshes])  # (M,3)
-    maxs = np.array([m.bounds[1] for m in meshes])  # (M,3)
-    bbox_min = mins.min(axis=0)
-    bbox_max = maxs.max(axis=0)
-    center = (bbox_min + bbox_max) / 2.0
-    radius = float(np.linalg.norm(bbox_max - bbox_min)) / 2.0
-
+    # Use canonical camera positions (fixed distance from origin)
+    distance = 2.0
     camera = pyrender.PerspectiveCamera(yfov=np.deg2rad(45.0))
     light = pyrender.DirectionalLight(color=np.ones(3), intensity=3.0)
 
     renderer = pyrender.OffscreenRenderer(*IMAGE_SIZE)
     try:
         for name, direction in VIEWPOINTS.items():
-            pose = _camera_pose(direction, center, radius)
+            pose = _camera_pose(direction, distance)
             cam_node = scene.add(camera, pose=pose)
             light_node = scene.add(light, pose=pose)
 
@@ -211,7 +212,7 @@ def generate_camera_mapping(
     output_dir: Path | None = None,
     image_size: tuple[int, int] = IMAGE_SIZE,
     yfov_deg: float = 45.0,
-    distance: float = 2.5,
+    distance: float = 2.0,
 ) -> None:
     """Generate and store camera intrinsics & extrinsics for THuman views.
 
