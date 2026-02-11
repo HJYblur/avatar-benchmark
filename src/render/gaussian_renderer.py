@@ -75,15 +75,22 @@ class GsplatRenderer:
             from torchvision.transforms.functional import convert_image_dtype
             from pathlib import Path as _Path
 
-            # Ensure the output directory exists and build a filename
+            # Ensure the output directory exists
             out_dir = _Path(save_folder_path)
             out_dir.mkdir(parents=True, exist_ok=True)
-            out_file = out_dir / "debug.png"
 
-            # Save the first rendered image as PNG for inspection
-            sample_img = (
-                rendered_imgs[0].permute(2, 0, 1).to(torch.device("cpu"))
-            )  # (3, H, W)
-            img_to_save = convert_image_dtype(sample_img.clamp(0, 1), dtype=torch.uint8)
-            write_png(img_to_save, str(out_file))
+            # Normalize view_name to a list
+            if isinstance(view_name, str):
+                view_names_list = [view_name]
+            else:
+                view_names_list = list(view_name)
+
+            # Save rendered image for each view
+            for idx, vname in enumerate(view_names_list):
+                out_file = out_dir / f"debug_{vname}.png"
+                sample_img = (
+                    rendered_imgs[idx].permute(2, 0, 1).to(torch.device("cpu"))
+                )  # (3, H, W)
+                img_to_save = convert_image_dtype(sample_img.clamp(0, 1), dtype=torch.uint8)
+                write_png(img_to_save, str(out_file))
         return rendered_imgs  # (B, H, W, 3) where B=len(view_name) if list
