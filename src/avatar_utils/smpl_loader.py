@@ -59,28 +59,50 @@ def smplx_params_to_vertices(
     
     # Helper function to convert params to correct shape and device
     def to_tensor(key: str, default_shape: tuple) -> torch.Tensor:
+        """Convert a parameter to a torch.Tensor on the target device.
+
+        Optimization: if the provided value is already a torch.Tensor on the
+        desired device, avoid an extra device transfer. We still ensure
+        dtype and shape are appropriate.
+        """
         if key in smplx_params:
             val = smplx_params[key]
-            # Handle trimesh TrackedArray
-            if hasattr(val, '__array__'):
-                val = np.asarray(val)
-            
-            if isinstance(val, np.ndarray):
-                val = torch.from_numpy(val)
-            elif not isinstance(val, torch.Tensor):
-                val = torch.tensor(val)
-            
+
+            # Important: torch.Tensor implements __array__.
+            # Calling np.asarray() on a CUDA tensor raises:
+            #   TypeError: can't convert cuda:0 device type tensor to numpy
+            # So we only use numpy conversion for non-tensor array-likes.
+
+            # If it's already a torch tensor, keep a reference; otherwise
+            # convert from numpy or Python types (including TrackedArray).
+            if isinstance(val, torch.Tensor):
+                t = val
+            else:
+                # Handle trimesh TrackedArray / any __array__-compatible object
+                if hasattr(val, '__array__') and not isinstance(val, np.ndarray):
+                    val = np.asarray(val)
+
+                if isinstance(val, np.ndarray):
+                    t = torch.from_numpy(val)
+                else:
+                    t = torch.tensor(val)
+
             # Ensure float32
-            val = val.float()
-            
+            t = t.float()
+
             # Reshape if needed (flatten then reshape to batch format)
-            if val.dim() == 1:
-                val = val.reshape(1, -1)
-            elif val.dim() > 2:
+            if t.dim() == 1:
+                t = t.reshape(1, -1)
+            elif t.dim() > 2:
                 # e.g., (21, 3) -> (1, 63)
-                val = val.reshape(1, -1)
-                
-            return val.to(device)
+                t = t.reshape(1, -1)
+
+            # Move to device only if not already on the target device. This
+            # avoids unnecessary copies when tensors are already on CUDA.
+            if t.device != device:
+                t = t.to(device)
+
+            return t
         else:
             return torch.zeros(default_shape, device=device, dtype=torch.float32)
     
