@@ -59,10 +59,7 @@ def look_at(eye: np.ndarray, target: np.ndarray, up: np.ndarray) -> np.ndarray:
 DATA_ROOT = Path(__file__).resolve().parents[2] / "data" / "THuman_2.0"
 OUT_ROOT = Path(__file__).resolve().parents[2] / "processed"
 IMAGE_SIZE = (1024, 1024)
-# Scale THuman meshes (~0.64m) to match SMPL-X canonical size (~1.72m)
-# This ensures training images have same scale as SMPL-X Gaussians from NLF
-# 1.72 / 0.64 ≈ 2.7, we use 2.5 to leave some margin and avoid cropping
-MESH_SCALE = 2.5
+MESH_SCALE = 1.5
 VIEWPOINTS = {
     "front": np.array([0.0, 0.0, 1.0]),
     "back": np.array([0.0, 0.0, -1.0]),

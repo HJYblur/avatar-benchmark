@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from torchmetrics import StructuralSimilarityIndexMeasure
+from torchmetrics.image import StructuralSimilarityIndexMeasure
 from avatar_utils.config import load_config
 
 class LossFunctions(nn.Module):
