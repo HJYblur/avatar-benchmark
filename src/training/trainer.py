@@ -16,6 +16,7 @@ from render.gaussian_renderer import GsplatRenderer
 from training.losses import LossFunctions
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
+from avatar_utils.smpl_loader import smplx_params_to_vertices
 
 
 class NlfGaussianModel(L.LightningModule):
@@ -71,7 +72,7 @@ class NlfGaussianModel(L.LightningModule):
 
     def training_step(self, batch: Dict[str, Any], batch_idx: int):
         # Extract data from batch
-        img_float, img_uint8, (B, H, W), subject, view_names = self.process_input(batch)
+        img_float, img_uint8, (B, H, W), subject, view_names, smplx_params = self.process_input(batch)
         self._logger.info(f"Processing subject: {subject}, views: {view_names}")
 
         grad_ctx = torch.inference_mode() if self.train_decoder_only else nullcontext()
@@ -105,7 +106,7 @@ class NlfGaussianModel(L.LightningModule):
                 self.avatar_estimator.feature_sample_with_visibility(
                     feats, preds, img_shape=(H, W)
                 )
-            )  # (B, N, C_local), (B, N)
+            )  # (B, N, C_local), (B, N), (B, N, 3)
 
         if local_feats.shape[0] > 1:
             weight_sum = view_weights.sum(dim=0, keepdim=True).clamp_min(1e-6)
@@ -151,10 +152,29 @@ class NlfGaussianModel(L.LightningModule):
             gaussian_3d.shape[0] == self.num_views
         ), "Mismatch between gaussian_3d and num_views"
 
+        # If SMPL-X parameters are available, compute ground-truth Gaussian positions for rendering
+        gaussian_3d_for_rendering = gaussian_3d
+        if smplx_params is not None:
+            self._logger.info(f"Using ground-truth SMPL-X parameters for rendering subject {subject}")
+            with torch.no_grad():
+                vertices3d = smplx_params_to_vertices(
+                    smplx_params,
+                    model_path="./models",
+                    device=self.device
+                )  # (V, 3)
+                
+                # Expand to match number of views
+                vertices3d_batch = vertices3d.unsqueeze(0).expand(self.num_views, -1, -1)  # (num_views, V, 3)
+                
+                # Compute Gaussian positions from ground-truth SMPL-X vertices
+                gaussian_3d_for_rendering = self.avatar_estimator.compute_gaussian_positions_from_vertices(
+                    vertices3d_batch
+                )  # (num_views, N, 3)
+
         if self.debug:
             # Use gaussian_params and gaussian_3ds to generate a .ply file as the reconstruction.
             new_avatar = reconstruct_gaussian_avatar_as_ply(
-                xyz=gaussian_3d[0],
+                xyz=gaussian_3d_for_rendering[0],
                 gaussian_params=gaussian_params,
                 template=self.template.load_avatar_template(mode="test"),
                 output_path=f"output/{subject}/{subject}_{view_names[0][0]}.ply",
@@ -166,7 +186,7 @@ class NlfGaussianModel(L.LightningModule):
                 / subject
             )
             rendered_imgs = self.renderer.render(
-                gaussian_3d=gaussian_3d[0],
+                gaussian_3d=gaussian_3d_for_rendering[0],
                 gaussian_params=gaussian_params,
                 view_name=view_names,
                 save_folder_path=save_path,
@@ -184,6 +204,8 @@ class NlfGaussianModel(L.LightningModule):
             del local_feats
             del z_id
             del gaussian_3d
+            if 'gaussian_3d_for_rendering' in locals() and gaussian_3d_for_rendering is not gaussian_3d:
+                del gaussian_3d_for_rendering
         except Exception:
             pass
         if torch.cuda.is_available():
@@ -287,7 +309,10 @@ class NlfGaussianModel(L.LightningModule):
                 ]
         # Else leave None as-is
 
-        return img_float, img_uint8, (B, H, W), subject, view_names
+        # Extract SMPL-X parameters if available
+        smplx_params = batch.get("smplx_params", None)
+
+        return img_float, img_uint8, (B, H, W), subject, view_names, smplx_params
 
     def load_debug_feats(self, img_float, img_uint8):
         feats_path = "debug_backbone_features.pt"

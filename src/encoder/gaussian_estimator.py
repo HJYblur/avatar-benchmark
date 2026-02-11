@@ -108,16 +108,45 @@ class AvatarGaussianEstimator(nn.Module):
         if cached is None:
             v3d_list = pred["vertices3d"]  # A list of length B with (P, Nv, 3)
             cached = torch.stack([v3d_raw[0] for v3d_raw in v3d_list], dim=0)  # (B, Nv, 3)
-            
-            # Center vertices to match THuman mesh centering
-            # SMPL-X from NLF may have translation in all dimensions (X, Y, Z)
-            # Subtract mean in all dimensions to center at origin, matching how THuman meshes are positioned
-            for b in range(cached.shape[0]):
-                vertex_mean = cached[b].mean(dim=0)  # (3,) - mean for each dimension
-                cached[b] = cached[b] - vertex_mean  # Center all dimensions
-            
             pred["_vertices3d_stack"] = cached  # (B, Nv, 3)
         return cached.to(device=device)
+
+    def compute_gaussian_positions_from_vertices(
+        self, vertices3d: torch.Tensor
+    ) -> torch.Tensor:
+        """Compute Gaussian 3D positions directly from SMPL-X vertices.
+        
+        This bypasses NLF prediction and uses ground-truth SMPL-X vertices
+        to compute Gaussian positions via barycentric interpolation.
+        
+        Args:
+            vertices3d: (B, Nv, 3) tensor of SMPL-X vertex coordinates
+            
+        Returns:
+            centers3d: (B, N, 3) tensor of Gaussian positions
+        """
+        B, Nv, _ = vertices3d.shape
+        device = vertices3d.device
+        
+        N = int(self._avatar.total_gaussians_num)
+        K = int(self._avatar.barycentric_coords.shape[0])
+        
+        parents = self._avatar.parents.to(device=device, dtype=torch.long)  # (N, 3)
+        bary = self._avatar.barycentric_coords.to(device=device, dtype=torch.float32)  # (K, 3)
+        
+        # Map each Gaussian to its barycentric row
+        idx = torch.arange(N, device=device) % K  # (N,)
+        bary_per_gauss = bary[idx]  # (N, 3)
+        
+        # Gather parent vertices
+        flat_idx = parents.reshape(-1)  # (N*3,)
+        verts_sel = vertices3d.index_select(1, flat_idx)  # (B, N*3, 3)
+        face_verts = verts_sel.reshape(B, N, 3, 3)  # (B, N, 3(parents), 3(coords))
+        
+        # Barycentric interpolation: weighted sum over parents
+        centers3d = torch.einsum("bnpc,np->bnc", face_verts, bary_per_gauss)  # (B, N, 3)
+        
+        return centers3d
 
     def compute_gaussian_normals(self, pred, device):
         """Compute per-Gaussian normals from mesh face vertices."""

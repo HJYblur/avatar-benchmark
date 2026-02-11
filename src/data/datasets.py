@@ -1,4 +1,5 @@
 import os
+import pickle
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -104,11 +105,15 @@ class AvatarDataset(Dataset):
             images_float, images_uint8, rec["subject"]
         )
 
+        # Load SMPL-X parameters if available
+        smplx_params = self._load_smplx_params(rec["subject"])
+
         return {
             "images_float": images_float,
             "images_uint8": images_uint8,
             "subject": rec["subject"],
             "view_names": view_names,
+            "smplx_params": smplx_params,  # New field
         }
 
     def _index_subjects(self) -> None:
@@ -152,6 +157,47 @@ class AvatarDataset(Dataset):
                     }
                 )
 
+    def _load_smplx_params(self, subject: str) -> Optional[Dict[str, Any]]:
+        """Load SMPL-X parameters for the given subject.
+        
+        Searches for files in this order:
+        1. data/THuman_2.0_smplx_paras/<subject>/smplx_param.pkl
+        2. processed/<subject>/smplx_params.pkl
+        3. processed/<subject>/<subject>_smplx.pkl
+        4. Returns None if not found (optional - will use NLF)
+        
+        Returns:
+            Dictionary with SMPL-X parameters or None
+        """
+        # Try THuman 2.0 smplx params directory first
+        thuman_smplx_dir = Path("data/THuman_2.0_smplx_paras") / subject
+        thuman_pkl = thuman_smplx_dir / "smplx_param.pkl"
+        
+        subject_dir = self.root / subject
+        
+        # Try different naming conventions in order
+        candidate_paths = [
+            thuman_pkl,  # Primary location for THuman dataset
+            subject_dir / "smplx_params.pkl",
+            subject_dir / f"{subject}_smplx.pkl",
+            subject_dir / "smplx.pkl",
+        ]
+        
+        for pkl_path in candidate_paths:
+            if pkl_path.exists():
+                try:
+                    with open(pkl_path, "rb") as f:
+                        params = pickle.load(f)
+                        # for k, v in params.items():
+                        #     print(f"Loaded SMPL-X param '{k}' with type {type(v)} and shape {getattr(v, 'shape', 'N/A')}")
+                    return params
+                except Exception as e:
+                    # Silent failure - SMPL-X params are optional
+                    continue
+        
+        # No SMPL-X params found - this is OK, will use NLF
+        return None
+
 
 class ViewsChunkedDataset(Dataset):
     """Yield sequential view chunks from a subject-level dataset.
@@ -184,4 +230,6 @@ class ViewsChunkedDataset(Dataset):
         }
         if "view_names" in sample:
             out["view_names"] = sample["view_names"][start:end]
+        if "smplx_params" in sample:
+            out["smplx_params"] = sample["smplx_params"]
         return out
