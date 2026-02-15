@@ -24,7 +24,8 @@ class GsplatRenderer:
         Render the Gaussian splat representation into 2D images.
 
         Args:
-            gaussian_3d: Tensor of shape (N, 3) representing 3D Gaussian centers.
+            gaussian_3d: Tensor of shape (N, 3) for shared 3D, or (B, N, 3) for per-view 3D
+                (each view uses its own means; use when backbone predicts in camera space per view).
             gaussian_params: Dictionary containing Gaussian parameters such as scales, rotations, alphas, etc.
             view_name: A single view name (e.g., 'front') or a list of view names
                 (e.g., ['front', 'left']).
@@ -39,35 +40,67 @@ class GsplatRenderer:
         assert (
             K == (self.sh_degree + 1) ** 2 * 3
         ), f"We expected SH shape (N, {(self.sh_degree + 1) ** 2 * 3}), got {shs.shape}"
-        colors = shs.view(N, -1, 3) # (N, K//3, 3)
+        colors = shs.view(N, -1, 3)  # (N, K//3, 3)
 
         width, height = get_config().get("data", {}).get("image_size", (1024, 1024))
 
-        # Load precomputed camera matrices (batched if a list is provided)
-        viewmats, Ks = load_camera_mapping(view_name)  # (B, 4, 4), (B, 3, 3)
-        viewmats = viewmats.to(gaussian_3d.device).contiguous()
-        Ks = Ks.to(gaussian_3d.device).contiguous()
+        view_names_list = [view_name] if isinstance(view_name, str) else list(view_name)
+        num_views = len(view_names_list)
 
-        if backgrounds is None:
-            # Default white background
-            backgrounds = torch.ones(3, device=gaussian_3d.device)
+        # Per-view 3D: gaussian_3d (B, N, 3) — render each view with its own means
+        per_view_3d = gaussian_3d.dim() == 3 and gaussian_3d.shape[0] == num_views and gaussian_3d.shape[1] == N
+
+        if per_view_3d:
+            rendered_list = []
+            for i in range(num_views):
+                viewmats, Ks = load_camera_mapping(view_names_list[i])
+                viewmats = viewmats.to(gaussian_3d.device).contiguous()
+                Ks = Ks.to(gaussian_3d.device).contiguous()
+                if backgrounds is None:
+                    bg = torch.ones(3, device=gaussian_3d.device)
+                else:
+                    bg = backgrounds.to(gaussian_3d.device)
+                img, _, _ = rasterization(
+                    means=gaussian_3d[i],
+                    quats=gaussian_params["rotation"],
+                    scales=gaussian_params["scales"],
+                    opacities=gaussian_params["alpha"],
+                    sh_degree=self.sh_degree,
+                    colors=colors,
+                    viewmats=viewmats,
+                    Ks=Ks,
+                    camera_model=camera_model,
+                    width=width,
+                    height=height,
+                    render_mode=render_mode,
+                    backgrounds=bg,
+                )
+                rendered_list.append(img)
+            rendered_imgs = torch.cat(rendered_list, dim=0)
         else:
-            backgrounds = backgrounds.to(gaussian_3d.device)
-        rendered_imgs, rendered_alphas, meta = rasterization(
-            means=gaussian_3d,
-            quats=gaussian_params["rotation"],
-            scales=gaussian_params["scales"],
-            opacities=gaussian_params["alpha"],
-            sh_degree=self.sh_degree,
-            colors=colors,  # (N, K), usually K = 3
-            viewmats=viewmats,
-            Ks=Ks,
-            camera_model=camera_model,
-            width=width,
-            height=height,
-            render_mode=render_mode,
-            backgrounds=backgrounds,
-        )
+            # Single 3D (N, 3) shared across all views
+            viewmats, Ks = load_camera_mapping(view_name)
+            viewmats = viewmats.to(gaussian_3d.device).contiguous()
+            Ks = Ks.to(gaussian_3d.device).contiguous()
+            if backgrounds is None:
+                backgrounds = torch.ones(3, device=gaussian_3d.device)
+            else:
+                backgrounds = backgrounds.to(gaussian_3d.device)
+            rendered_imgs, _, _ = rasterization(
+                means=gaussian_3d,
+                quats=gaussian_params["rotation"],
+                scales=gaussian_params["scales"],
+                opacities=gaussian_params["alpha"],
+                sh_degree=self.sh_degree,
+                colors=colors,
+                viewmats=viewmats,
+                Ks=Ks,
+                camera_model=camera_model,
+                width=width,
+                height=height,
+                render_mode=render_mode,
+                backgrounds=backgrounds,
+            )
         # rendered_imgs: (B, H, W, 3)
         if save_folder_path is not None:
             from torchvision.io import write_png
@@ -77,12 +110,6 @@ class GsplatRenderer:
             # Ensure the output directory exists
             out_dir = _Path(save_folder_path)
             out_dir.mkdir(parents=True, exist_ok=True)
-
-            # Normalize view_name to a list
-            if isinstance(view_name, str):
-                view_names_list = [view_name]
-            else:
-                view_names_list = list(view_name)
 
             # Save rendered image for each view
             for idx, vname in enumerate(view_names_list):
