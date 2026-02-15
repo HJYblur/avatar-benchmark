@@ -165,8 +165,10 @@ class NlfGaussianModel(L.LightningModule):
                 Path(get_config().get("render", {}).get("save_path", "output"))
                 / subject
             )
+            mesh_scale = float(get_config().get("data", {}).get("mesh_scale", 1.0))
+            gaussian_3d_render = gaussian_3d[0] * mesh_scale
             rendered_imgs = self.renderer.render(
-                gaussian_3d=gaussian_3d[0],
+                gaussian_3d=gaussian_3d_render,
                 gaussian_params=gaussian_params,
                 view_name=view_names,
                 save_folder_path=save_path,

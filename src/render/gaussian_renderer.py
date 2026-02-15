@@ -4,7 +4,6 @@ from gsplat import rasterization
 from avatar_utils.config import get_config
 from avatar_utils.camera import load_camera_mapping
 from typing import Sequence, Union
-from avatar_utils.config import get_config
 
 
 class GsplatRenderer:

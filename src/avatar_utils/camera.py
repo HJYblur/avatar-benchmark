@@ -119,9 +119,8 @@ def camera_mapping(view_name: str) -> tuple[torch.Tensor, torch.Tensor]:
 
     center = torch.zeros(3, dtype=torch.float32)
     direction = directions[view_name]
-    # Use a canonical distance matching preprocess_thuman's pattern (radius * 2.5).
-    # Without radius, pick distance=2.5.
-    distance = 2.5
+    # Use canonical distance matching preprocess_thuman (generate_camera_mapping uses 2.0).
+    distance = 2.0
     eye = center + direction * distance
 
     up = torch.tensor([0.0, 1.0, 0.0], dtype=torch.float32)
