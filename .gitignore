@@ -209,11 +209,11 @@ __marimo__/
 # Project specific
 # Ignore data files
 data/*
-processed/*
+# processed/*
 
 # Ignore output files
 logs/*
-output/*
+# output/*
 
 # Ignore model files
 models/nlf_checkpoint/
@@ -228,7 +228,7 @@ checkpoints/
 *.pt
 
 # Ignore debug files
-debug*
+# debug*
 
 # macOS specific files
 *.DS_Store
