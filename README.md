@@ -1,65 +1,212 @@
-# Avatar Benchmark
+# NLF-Gaussian Avatar
 
-This repo scaffolds an avatar generation pipeline that combines an NLF backbone for SMPL‑X pose prediction with a Gaussian‑splatting avatar representation for appearance. The goal is to enable training personalized interactive 3D avatars from RGB images.
+A pipeline for training **personalized 3D avatars** from multi-view RGB images. It combines an [NLF](https://github.com/HJYblur/nlf) backbone for SMPL-X pose, and appearance prediction with a **3D Gaussian Splatting** avatar representation. You can train identity-specific avatars that can be rendered from arbitrary views.
 
+---
 
-## Pipeline
+## What it does
 
-- Avatar Template
-  - Attach `k` Gaussians per SMPL‑X mesh face; total `N = k * |F|`.
-  - Each Gaussian `g_i = {x_i^can, r_i, s_i, α_i, c_i^SH}` in canonical space.
-- Image Encoding
-  - Backbone extracts dense features `F_img ∈ R^{C×Hf×Wf}` from input image.
-  - NLF predicts SMPL‑X quantities and 2D/3D vertices used downstream.
-- Identity Encoding
-  - Pool features over avatar foreground (via projected non‑param vertices) to get `z_id ∈ R^D`.
-- Pose‑Conditioned Localization
-  - For each Gaussian, compute posed center using barycentric weights over its parent triangle: `x_i^{3D}` and projected `x_i^{2D}` from NLF vertices.
-- Local Feature Sampling
-  - Bilinear sample `F_img` at `x_i^{2D}` to get per‑Gaussian local features `f_i`.
-- Identity‑Conditioned Decoding
-  - Concatenate `[z_id, f_i, x_i^{3D}]` and decode `(r_i, s_i, α_i, c_i^SH)` with a shared MLP.
-- Rendering & Losses
-  - Render posed Gaussians with a differentiable 3DGS renderer; supervise with photometric/perceptual losses and regularizers.
-  - See architecture diagram: `assets/pipeline.png`.
+1. **Image encoding** — An NLF backbone extracts dense image features and predicts SMPL-X parameters and 2D/3D vertices.
+2. **Identity encoding** — Features are pooled over the avatar foreground to produce an identity latent vector.
+3. **Avatar template** — A fixed set of Gaussians is attached to the SMPL-X mesh (e.g. \(k\) per face). Each Gaussian has a canonical position and is posed via barycentric weights on its parent triangle.
+4. **Per-Gaussian features** — Backbone features are sampled at each Gaussian’s projected 2D position; 3D positions come from the posed mesh.
+5. **Decoding** — A shared MLP (optionally conditioned on the identity latent) predicts per-Gaussian parameters: scale, rotation, opacity, spherical harmonics.
+6. **Rendering & loss** — A differentiable 3DGS renderer produces images; training uses photometric loss [TODO: Add more losses].
 
-## TODO For A Runnable Pipeline
+The codebase uses [Lightning](https://lightning.ai/) for training and [gsplat](https://github.com/nerfstudio-project/gsplat) for rendering (GPU).
 
-1) Training pipeline
-- Unify `train.py` and `src/training/trainer.py` using Lightning.
-- Instantiate and wire `IdentityEncoder` and `GaussianDecoder` in `train.py`.
-- Add checkpointing and logging (metrics, losses, samples).
+---
 
-2) Data & Preprocessing
-- Define a dataset class and the dataset to use.
-- Add preprocessing scripts for datasets.
-- Add camera extrinsics/poses or derive if available.
-- Add masks/crops to restrict supervision to the person region.
-- Add train/val/test splits and basic augmentations.
+## Requirements
 
-3) NLF Integration
-- Decide single‑person vs multi‑person handling and batching.
+- **Python** 3.10+
+- **PyTorch** 2.x
+- **CUDA** for training with the differentiable renderer (CPU is supported but uses a proxy regularization loss only)
 
+### Install dependencies
+- **conda (full env with gsplat)**
 
-4) Model Glue
-- Verify channel order and tensor shapes between dataset, adapter, and trainer.
-- Fix `IdentityEncoder` to use the correct key (`vertices2d_nonparam`).
-- Determine `backbone_feat_dim` from the loaded backbone or config.
+If you have a Linux conda environment exported with PyTorch + gsplat:
 
-5) Rendering & Losses
-- Integrate a differentiable 3D Gaussian renderer for supervision.
-- Define and implement photometric, perceptual, occlusion losses.
-- Export predicted Gaussians to PLY for debugging/visualization.
+```bash
+conda env create -f environment.yml
+conda activate ml
+```
 
-6) Config & Requirements
-- Add `lightning` to requirements or remove the dependency.
-- Validate required config keys and fail with clear messages.
+Adjust `environment.yml` channels/packages for your platform if needed.
 
+---
 
-## Usage (Scaffold)
-- Generate or load the avatar template via config (`avatar.template.mode: generate|default|test`).
-- Point `data.root` to a directory with RGB images; ensure `nlf.checkpoint_path` points to a TorchScript MultipersonNLF checkpoint.
-- Run: `python train.py --config configs/nlfgs_base.yaml`
+## Repository layout
 
-## 3DGS Loading Site
-[Link](https://superspl.at/editor)
+```
+avatar-benchmark/
+├── train.py                 # Training entrypoint
+├── configs/
+│   ├── nlfgs_base.yaml      # CPU / base config
+│   └── nlfgs_gpu.yaml       # GPU training + rendering
+├── src/
+│   ├── data/
+│   │   ├── datamodule.py    # Lightning DataModule
+│   │   ├── datasets.py      # AvatarDataset (multi-view images)
+│   │   ├── preprocess_thuman.py   # THuman 2.0 → processed views
+│   │   └── preprocess_PeopleSnapshot.py
+│   ├── encoder/             # NLF adapter, identity encoder, gaussian estimator
+│   ├── decoder/             # Gaussian decoder MLP
+│   ├── render/              # Gsplat-based renderer
+│   ├── training/            # Lightning module, losses
+│   └── avatar_utils/       # Config, camera, PLY, SMPL-X helpers
+├── nlf/                     # Git submodule (NLF model code)
+├── data/                    # Raw data & camera cache (see below)
+├── processed/                # Processed per-subject images (training input)
+└── models/                  # Checkpoints and templates (you provide these)
+```
+
+---
+
+## Data preparation
+
+Training expects a **processed** directory of per-subject folders. Each subject folder must contain multi-view images named by view.
+
+### Expected structure
+
+- **`data.root`** (config, default `processed`) should point to a directory containing one folder per subject.
+- Inside each subject folder, images named:  
+  `<subject>_front.(png|jpg|jpeg)`, `<subject>_back.*`, `<subject>_left.*`, `<subject>_right.*`
+- Set **`data.num_views`** in config:
+  - `1` — only `front` is loaded.
+  - `4` — `front`, `back`, `left`, `right` (order in `VIEW_ORDER` in `datasets.py`).
+
+Example:
+
+```
+processed/
+  subject_a/
+    subject_a_front.png
+    subject_a_back.png
+    subject_a_left.png
+    subject_a_right.png
+  subject_b/
+    ...
+```
+
+### Preprocessing scripts
+
+- **THuman 2.0**  
+  Renders OBJ meshes (with textures) into the four canonical views and writes them under `processed/<identity>/` with `<identity>_front.png` etc.  
+  Run from repo root (script uses paths relative to it):
+
+  ```bash
+  python -m src.data.preprocess_thuman
+  ```
+
+  Raw data is expected under `data/THuman_2.0` (see `DATA_ROOT` in the script). The script also generates camera JSONs under `data/THuman_cameras/` (e.g. `thuman_front.json`) used by the renderer.
+
+- **[Deprecated] PeopleSnapshot**  
+  Converts a PeopleSnapshot subject (cameras, video, masks, poses) into the processed layout.  
+  Usage:
+
+  ```bash
+  python -m src.data.preprocess_PeopleSnapshot --root /path/to/PeopleSnapshot --subject male-3-casual --outdir processed
+  ```
+
+  You may need to adapt the output filenames to the `<subject>_<view>.png` convention if you want to use all four views with the current dataset class.
+
+---
+
+## Model assets
+
+Training needs the following; paths are set in the config.
+
+| Asset | Config key | Description |
+|-------|------------|-------------|
+| **NLF checkpoint** | `nlf.checkpoint_path` | TorchScript NLF model (e.g. multiperson). Default: `models/nlf_checkpoint/nlf_l_multi.torchscript`. Not included in the repo; obtain from the [NLF](https://github.com/HJYblur/nlf) project. |
+| **Avatar template** | `avatar.template.path` | PLY of Gaussians on the canonical mesh. Default: `models/avatar_template.ply`. Can be generated from the canonical mesh (see below). |
+| **Canonical mesh** | `avatar.template.cano_mesh_path` | SMPL-X mesh (e.g. `models/smplx/smplx_uv.obj`) used to generate or interpret the avatar template. |
+
+### Avatar template modes
+
+In config, **`avatar.template.mode`**:
+
+- **`default`** — Load existing `avatar.template.path` (e.g. `models/avatar_template.ply`). Fails if the file is missing.
+- **`generate`** — Build the template from the canonical mesh and save it to `avatar.template.path`.
+- **`test`** — Load template and write a “test” PLY (e.g. for visualization).
+
+Ensure the canonical mesh exists at `avatar.template.cano_mesh_path` when using `generate` or `test`.
+
+---
+
+## Configuration
+
+Main config files:
+
+- **`configs/nlfgs_base.yaml`** — CPU, 1 epoch, debug-friendly.
+- **`configs/nlfgs_gpu.yaml`** — CUDA, 10 epochs, render output, loss weights.
+
+Important sections:
+
+- **`sys.device`** — `cpu` or `cuda` (or `cuda:0` etc.).
+- **`data.root`** — Directory of processed subject folders (default `processed`).
+- **`data.num_views`** — `1` or `4`.
+- **`nlf.checkpoint_path`** — Path to the NLF TorchScript file.
+- **`train`** — `accelerator`, `epochs`, `batch_size`, `lr`, `val_ratio`, `weight_rgb`, `weight_ssim`, etc.
+- **`render.save_path`** — Where to save rendered images (e.g. `output`).
+
+Optional: **`data.image_size`** — `[width, height]` for rendering (default `[1024, 1024]`). Should match your preprocessed image size.
+
+---
+
+## Running training
+
+1. **Clone and submodules**
+
+   ```bash
+   git clone --recurse-submodules https://github.com/<your-org>/avatar-benchmark.git
+   cd avatar-benchmark
+   ```
+
+2. **Prepare data**  
+   Put processed per-subject images under `processed/` (or set `data.root`), with `\<subject\>_<view>.png` naming and `data.num_views` set accordingly.
+
+3. **Prepare models**  
+   - NLF: place the TorchScript checkpoint at `models/nlf_checkpoint/nlf_l_multi.torchscript` (or set `nlf.checkpoint_path`).  
+   - Avatar template: have `models/avatar_template.ply` or set `avatar.template.mode: generate` and provide `models/smplx/smplx_uv.obj`.  
+   - Ensure `avatar.template.cano_mesh_path` points to the SMPL-X mesh when using `generate`/`test`.
+
+4. **Run**
+
+   ```bash
+   python train.py --config configs/nlfgs_base.yaml
+   ```
+
+   For GPU training and rendering:
+
+   ```bash
+   python train.py --config configs/nlfgs_gpu.yaml
+   ```
+
+Logs are written to `logs/train.log`. With CUDA and a valid `render.save_path`, the trainer saves rendered views under `render.save_path/<subject>/`.
+
+---
+
+## Debug mode
+
+In config, set **`sys.debug: True`** to:
+
+- Limit the dataset to a few samples.
+- Optionally cache backbone features/predictions in `debug_backbone_features.pt` and `debug_backbone_preds.pt` for faster iteration.
+- Save a debug input image as `debug_sample.png`.
+- Export a reconstructed Gaussian PLY under `output/<subject>/` for inspection.
+
+---
+
+## 3DGS export / visualization
+
+The pipeline can export predicted Gaussians to PLY (e.g. in debug mode or via `reconstruct_gaussian_avatar_as_ply` in `avatar_utils.ply_loader`). You can load and visualize these in tools such as [SuperSplat](https://superspl.at/editor) or other 3DGS viewers.
+
+---
+
+## License and references
+
+- **NLF** is used as a submodule: [github.com/HJYblur/nlf](https://github.com/HJYblur/nlf). Check that project for license and checkpoint terms.
+- Avatar representation and training setup follow a Gaussian-splatting-on-SMPL-X style pipeline; see config and code for details.
