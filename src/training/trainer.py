@@ -16,6 +16,7 @@ from render.gaussian_renderer import GsplatRenderer
 from training.losses import LossFunctions
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
+from avatar_utils.camera import load_camera_mapping
 
 
 class NlfGaussianModel(L.LightningModule):
@@ -157,7 +158,7 @@ class NlfGaussianModel(L.LightningModule):
                 xyz=gaussian_3d[0],
                 gaussian_params=gaussian_params,
                 template=self.template.load_avatar_template(mode="test"),
-                output_path=f"output/{subject}/{subject}_{view_names[0][0]}.ply",
+                output_path=f"output/{subject}/{subject}_{view_names[0] if isinstance(view_names[0], str) else view_names[0][0]}.ply",
             )
 
         if self.device.type == "cuda":
@@ -166,7 +167,20 @@ class NlfGaussianModel(L.LightningModule):
                 / subject
             )
             mesh_scale = float(get_config().get("data", {}).get("mesh_scale", 1.0))
-            gaussian_3d_render = gaussian_3d[0] * mesh_scale
+            # Backbone predicts 3D per view in that view's camera space. Transform each
+            # to world space so one cloud can be rendered from all cameras.
+            viewmats, _ = load_camera_mapping(view_names)
+            viewmats = viewmats.to(gaussian_3d.device)
+            c2w = torch.linalg.inv(viewmats)  # (V, 4, 4)
+            N = gaussian_3d.shape[1]
+            ones = torch.ones(N, 1, device=gaussian_3d.device, dtype=gaussian_3d.dtype)
+            gaussian_3d_world = []
+            for i in range(gaussian_3d.shape[0]):
+                xyz_h = torch.cat([gaussian_3d[i], ones], dim=-1)  # (N, 4)
+                xyz_w = (c2w[i] @ xyz_h.T).T[..., :3]  # (N, 3)
+                gaussian_3d_world.append(xyz_w)
+            gaussian_3d_world = torch.stack(gaussian_3d_world, dim=0)
+            gaussian_3d_render = gaussian_3d_world[0] * mesh_scale
             rendered_imgs = self.renderer.render(
                 gaussian_3d=gaussian_3d_render,
                 gaussian_params=gaussian_params,
