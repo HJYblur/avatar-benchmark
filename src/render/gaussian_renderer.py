@@ -6,6 +6,15 @@ from avatar_utils.camera import load_camera_mapping
 from typing import Sequence, Union
 
 
+def _viewmat_opengl_to_gsplat(viewmats: torch.Tensor) -> torch.Tensor:
+    """Convert OpenGL-style w2c (camera looks along -Z) to gsplat (camera looks along +Z).
+    gsplat expects z_cam positive into the scene; our preprocess uses OpenGL -Z into scene.
+    Flip the third row of w2c so transformed points get z_cam negated."""
+    out = viewmats.clone()
+    out[..., 2, :] = -out[..., 2, :]
+    return out
+
+
 class GsplatRenderer:
     def __init__(self):
         self.sh_degree = get_config().get("decoder", {}).get("sh_degree", 3)
@@ -47,60 +56,38 @@ class GsplatRenderer:
         view_names_list = [view_name] if isinstance(view_name, str) else list(view_name)
         num_views = len(view_names_list)
 
-        # Per-view 3D: gaussian_3d (B, N, 3) — render each view with its own means
-        per_view_3d = gaussian_3d.dim() == 3 and gaussian_3d.shape[0] == num_views and gaussian_3d.shape[1] == N
-
-        if per_view_3d:
-            rendered_list = []
-            for i in range(num_views):
-                viewmats, Ks = load_camera_mapping(view_names_list[i])
-                viewmats = viewmats.to(gaussian_3d.device).contiguous()
-                Ks = Ks.to(gaussian_3d.device).contiguous()
-                if backgrounds is None:
-                    bg = torch.ones(3, device=gaussian_3d.device)
-                else:
-                    bg = backgrounds.to(gaussian_3d.device)
-                img, _, _ = rasterization(
-                    means=gaussian_3d[i],
-                    quats=gaussian_params["rotation"],
-                    scales=gaussian_params["scales"],
-                    opacities=gaussian_params["alpha"],
-                    sh_degree=self.sh_degree,
-                    colors=colors,
-                    viewmats=viewmats,
-                    Ks=Ks,
-                    camera_model=camera_model,
-                    width=width,
-                    height=height,
-                    render_mode=render_mode,
-                    backgrounds=bg,
-                )
-                rendered_list.append(img)
-            rendered_imgs = torch.cat(rendered_list, dim=0)
+        # Always use single shared 3D in world space so all views see the same avatar.
+        # Backbone predicts per-view 3D in camera space; we use front view and convert to world.
+        if gaussian_3d.dim() == 3 and gaussian_3d.shape[0] == num_views and gaussian_3d.shape[1] == N:
+            # Caller passed (V, N, 3); use first view only — trainer will pass world-space (N, 3)
+            means = gaussian_3d[0]
         else:
-            # Single 3D (N, 3) shared across all views
-            viewmats, Ks = load_camera_mapping(view_name)
-            viewmats = viewmats.to(gaussian_3d.device).contiguous()
-            Ks = Ks.to(gaussian_3d.device).contiguous()
-            if backgrounds is None:
-                backgrounds = torch.ones(3, device=gaussian_3d.device)
-            else:
-                backgrounds = backgrounds.to(gaussian_3d.device)
-            rendered_imgs, _, _ = rasterization(
-                means=gaussian_3d,
-                quats=gaussian_params["rotation"],
-                scales=gaussian_params["scales"],
-                opacities=gaussian_params["alpha"],
-                sh_degree=self.sh_degree,
-                colors=colors,
-                viewmats=viewmats,
-                Ks=Ks,
-                camera_model=camera_model,
-                width=width,
-                height=height,
-                render_mode=render_mode,
-                backgrounds=backgrounds,
-            )
+            means = gaussian_3d
+
+        viewmats, Ks = load_camera_mapping(view_name)
+        viewmats = viewmats.to(means.device).contiguous()
+        Ks = Ks.to(means.device).contiguous()
+        viewmats = _viewmat_opengl_to_gsplat(viewmats)
+
+        if backgrounds is None:
+            backgrounds = torch.ones(3, device=means.device)
+        else:
+            backgrounds = backgrounds.to(means.device)
+        rendered_imgs, _, _ = rasterization(
+            means=means,
+            quats=gaussian_params["rotation"],
+            scales=gaussian_params["scales"],
+            opacities=gaussian_params["alpha"],
+            sh_degree=self.sh_degree,
+            colors=colors,
+            viewmats=viewmats,
+            Ks=Ks,
+            camera_model=camera_model,
+            width=width,
+            height=height,
+            render_mode=render_mode,
+            backgrounds=backgrounds,
+        )
         # rendered_imgs: (B, H, W, 3)
         if save_folder_path is not None:
             from torchvision.io import write_png

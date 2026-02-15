@@ -16,6 +16,7 @@ from render.gaussian_renderer import GsplatRenderer
 from training.losses import LossFunctions
 from avatar_utils.ply_loader import reconstruct_gaussian_avatar_as_ply
 from avatar_utils.config import get_config
+from avatar_utils.camera import load_camera_mapping
 
 
 class NlfGaussianModel(L.LightningModule):
@@ -166,9 +167,18 @@ class NlfGaussianModel(L.LightningModule):
                 / subject
             )
             mesh_scale = float(get_config().get("data", {}).get("mesh_scale", 1.0))
-            # Backbone predicts 3D per view in that view's camera space. Render each view
-            # with its own 3D so all views get valid content (renderer supports (B, N, 3)).
-            gaussian_3d_render = gaussian_3d * mesh_scale  # (V, N, 3)
+            # Backbone front-view 3D is in camera space (camera at origin, +Z into scene).
+            # Convert to world: flip Z to match our convention, then apply front c2w.
+            viewmats, _ = load_camera_mapping(view_names)
+            viewmats = viewmats.to(gaussian_3d.device)
+            c2w = torch.linalg.inv(viewmats)  # (V, 4, 4)
+            front_cam = gaussian_3d[0].clone()
+            front_cam[..., 2] = -front_cam[..., 2]
+            N_pts = front_cam.shape[0]
+            ones = torch.ones(N_pts, 1, device=front_cam.device, dtype=front_cam.dtype)
+            xyz_h = torch.cat([front_cam, ones], dim=-1)
+            world_3d = (c2w[0] @ xyz_h.T).T[..., :3]
+            gaussian_3d_render = world_3d * mesh_scale
             rendered_imgs = self.renderer.render(
                 gaussian_3d=gaussian_3d_render,
                 gaussian_params=gaussian_params,
