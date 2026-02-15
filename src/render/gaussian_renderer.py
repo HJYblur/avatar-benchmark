@@ -54,12 +54,23 @@ class GsplatRenderer:
             backgrounds = torch.ones(3, device=gaussian_3d.device)
         else:
             backgrounds = backgrounds.to(gaussian_3d.device)
+            
+        colors = torch.rand((N, 3), device='cuda')
+        
+        width, height = 300, 200
+        viewmats = torch.eye(4, device='cuda')[None, :, :]
+        viewmats[:, 0, 3] = -5
+        viewmats = viewmats.expand(len(view_name) if isinstance(view_name, Sequence) else 1, -1, -1)
+        Ks = torch.tensor([
+           [300., 0., 150.], [0., 300., 100.], [0., 0., 1.]], device='cuda')[None, :, :]
+        Ks = Ks.expand(len(view_name) if isinstance(view_name, Sequence) else 1, -1, -1)
+            
         rendered_imgs, rendered_alphas, meta = rasterization(
             means=gaussian_3d,
             quats=gaussian_params["rotation"],
             scales=gaussian_params["scales"],
             opacities=gaussian_params["alpha"],
-            sh_degree=self.sh_degree,
+            # sh_degree=self.sh_degree,
             colors=colors,  # (N, K), usually K = 3
             viewmats=viewmats,
             Ks=Ks,
@@ -67,7 +78,7 @@ class GsplatRenderer:
             width=width,
             height=height,
             render_mode=render_mode,
-            backgrounds=backgrounds,
+            # backgrounds=backgrounds,
         )
         # rendered_imgs: (B, H, W, 3)
         if save_folder_path is not None:

@@ -15,6 +15,66 @@ from avatar_utils.config import load_config
 import os
 
 
+def save_points_as_ply(
+    points: torch.Tensor,
+    ply_path: str,
+    colors: torch.Tensor | None = None,
+) -> None:
+    """Save point cloud as an ASCII PLY.
+
+    Args:
+        points: (N, 3) float tensor (any device)
+        ply_path: output file path
+        colors: optional (N, 3) uint8 or float tensor in [0,1]/[0,255]
+    """
+    pts = points.detach().to("cpu").float().contiguous().numpy()
+    N = pts.shape[0]
+
+    cols = None
+    if colors is not None:
+        c = colors.detach().to("cpu").contiguous()
+        if c.dtype != torch.uint8:
+            c = c.float()
+            # Accept either 0..1 or 0..255
+            if c.max().item() <= 1.0:
+                c = (c * 255.0).round()
+            c = c.clamp(0, 255).to(torch.uint8)
+        cols = c.numpy()
+        if cols.shape != (N, 3):
+            raise ValueError(f"colors must have shape (N,3), got {cols.shape}")
+
+    os.makedirs(os.path.dirname(ply_path), exist_ok=True)
+
+    has_color = cols is not None
+    header = [
+        "ply",
+        "format ascii 1.0",
+        f"element vertex {N}",
+        "property float x",
+        "property float y",
+        "property float z",
+    ]
+    if has_color:
+        header += [
+            "property uchar red",
+            "property uchar green",
+            "property uchar blue",
+        ]
+    header += ["end_header"]
+
+    with open(ply_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(header) + "\n")
+        if has_color:
+            for i in range(N):
+                x, y, z = pts[i]
+                r, g, b = cols[i]
+                f.write(f"{x:.6f} {y:.6f} {z:.6f} {int(r)} {int(g)} {int(b)}\n")
+        else:
+            for i in range(N):
+                x, y, z = pts[i]
+                f.write(f"{x:.6f} {y:.6f} {z:.6f}\n")
+
+
 def create_pyramid_gaussians(
     apex_height=1.0,
     base_size=1.0,
@@ -75,7 +135,7 @@ def create_pyramid_gaussians(
     gaussian_3d = torch.tensor(all_points, dtype=torch.float32, device=device)
     
     # Create Gaussian parameters
-    gaussian_params = create_gaussian_params(N, device)
+    gaussian_params = create_gaussian_params(N, device, uniform_color=False)
     
     return gaussian_3d, gaussian_params
 
@@ -101,7 +161,7 @@ def create_gaussian_params(N, device="cpu", uniform_color=True):
     scales = torch.ones(N, 3, device=device) * 0.02  # Small Gaussians
     
     # Opacity - fully opaque (1D tensor)
-    alphas = torch.ones(N, device=device)
+    alphas = torch.rand((N,), device=device)
     
     # Spherical Harmonics coefficients
     # For sh_degree=3, we need (3+1)^2 = 16 coefficients per color channel
@@ -132,7 +192,7 @@ def create_gaussian_params(N, device="cpu", uniform_color=True):
 
 def main():
     # Load config
-    config_path = "configs/nlfgs_base.yaml"
+    config_path = "configs/nlfgs_gpu.yaml"
     if not os.path.exists(config_path):
         print(f"Config file not found: {config_path}")
         print("Using default config path...")
@@ -152,7 +212,7 @@ def main():
     print("="*60)
     gaussian_3d, gaussian_params = create_pyramid_gaussians(
         apex_height=1.0,
-        base_size=2.0,
+        base_size=1.0,
         num_points_per_edge=20,
         device=device
     )
@@ -174,6 +234,15 @@ def main():
     
     # Create output directory
     output_dir = "./output/renderer_test"
+
+    # Save the gaussian centers as a point-cloud PLY for quick inspection in MeshLab/Blender
+    ply_path = os.path.join(output_dir, "pyramid_gaussians.ply")
+    # Use a uniform red color to match the SH setup
+    ply_colors = torch.tensor([255, 0, 0], dtype=torch.uint8, device=gaussian_3d.device).view(1, 3).repeat(
+        gaussian_3d.shape[0], 1
+    )
+    save_points_as_ply(gaussian_3d, ply_path, colors=ply_colors)
+    print(f"Saved gaussian centers as PLY: {ply_path}")
     
     print("\n" + "="*60)
     print(f"Rendering {len(views)} views...")
