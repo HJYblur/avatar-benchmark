@@ -37,12 +37,10 @@ avatar_template:
   path: models/avatar_template.ply
   cano_mesh_path: models/smplx/smplx_uv.obj
   anim_mesh_path: tmp/output_smplx_mesh.ply
-  k_num_gaussians: 4
-  barycentric_coords:
-    - [0.6, 0.2, 0.2]
-    - [0.2, 0.6, 0.2]
-    - [0.2, 0.2, 0.6]
-    - [0.3333333333, 0.3333333333, 0.3333333333]
+  k_num_gaussians: 4 # Gaussians per mesh face; total = num_faces * k. Requires regenerating the template PLY (set mode: generate once) after changing.
+  # barycentric_coords (per-face placement) is OPTIONAL and auto-generated for any k.
+  # To pin an explicit layout, add a `barycentric_coords:` list with exactly
+  # k_num_gaussians rows of [u, v, w].
 
 decoder:
   in_dim: 768 # local feature dim

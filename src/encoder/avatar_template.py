@@ -188,11 +188,77 @@ class AvatarTemplate:
         return xyzs, shs, opacity, scales, rots
 
     def get_barycentric_coords(self) -> torch.Tensor:
+        """Return the ``(k_num_gaussians, 3)`` barycentric layout used per face.
+
+        Resolution order:
+            1. If ``avatar_template.barycentric_coords`` is set in the config and
+               provides exactly ``k_num_gaussians`` rows, use it verbatim (keeps
+               existing templates/checkpoints reproducible).
+            2. Otherwise auto-generate ``k_num_gaussians`` well-distributed
+               interior barycentric coordinates so the template adapts to any
+               ``k`` without hand-authoring rows.
+        """
         if not hasattr(self, "_barycentric_coords"):
-            raw = _cfg_req("avatar_template.barycentric_coords")
-            rows = [[float(x) for x in row] for row in raw]
-            self._barycentric_coords = torch.tensor(rows, dtype=torch.float32)
+            raw = get_cfg("avatar_template.barycentric_coords")
+            coords: Optional[torch.Tensor] = None
+            if raw is not None:
+                rows = [[float(x) for x in row] for row in raw]
+                if len(rows) == self.k_num_gaussians:
+                    coords = torch.tensor(rows, dtype=torch.float32)
+                else:
+                    print(
+                        f"[AvatarTemplate] config 'barycentric_coords' has {len(rows)} "
+                        f"row(s) but k_num_gaussians={self.k_num_gaussians}; "
+                        f"auto-generating {self.k_num_gaussians} coordinates instead."
+                    )
+            if coords is None:
+                coords = self._generate_barycentric_coords(self.k_num_gaussians)
+            self._barycentric_coords = coords
         return self._barycentric_coords
+
+    @staticmethod
+    def _generate_barycentric_coords(k: int) -> torch.Tensor:
+        """Generate ``k`` barycentric coordinates well-distributed inside a triangle.
+
+        Uses the centroids of a triangle subdivided into ``n**2`` congruent
+        sub-triangles (``n = ceil(sqrt(k))``). These centroids are strictly
+        interior and evenly spread; we then subsample uniformly to exactly ``k``
+        rows. For perfect squares (e.g. ``k in {1, 4, 9, 16}``) this returns the
+        full, symmetric grid.
+        """
+        if k < 1:
+            raise ValueError(f"k_num_gaussians must be >= 1, got {k}")
+        if k == 1:
+            return torch.tensor([[1.0 / 3, 1.0 / 3, 1.0 / 3]], dtype=torch.float32)
+
+        n = int(np.ceil(np.sqrt(k)))
+
+        def lattice(i: int, j: int) -> np.ndarray:
+            return np.array([(n - i - j) / n, i / n, j / n], dtype=np.float64)
+
+        centroids: List[np.ndarray] = []
+        # Upward-pointing sub-triangles.
+        for i in range(n):
+            for j in range(n - i):
+                c = (lattice(i, j) + lattice(i + 1, j) + lattice(i, j + 1)) / 3.0
+                centroids.append(c)
+        # Downward-pointing sub-triangles.
+        for i in range(n - 1):
+            for j in range(n - 1 - i):
+                c = (lattice(i + 1, j) + lattice(i, j + 1) + lattice(i + 1, j + 1)) / 3.0
+                centroids.append(c)
+
+        pts = np.stack(centroids, axis=0)  # (n**2, 3)
+
+        # Deterministically subsample to exactly k, spread across the grid.
+        # Step = M/k >= 1 guarantees k distinct, monotonically increasing indices.
+        if pts.shape[0] > k:
+            sel = np.floor(
+                np.linspace(0, pts.shape[0], num=k, endpoint=False)
+            ).astype(int)
+            pts = pts[sel]
+
+        return torch.tensor(pts, dtype=torch.float32)
 
     @property
     def barycentric_coords(self) -> torch.Tensor:

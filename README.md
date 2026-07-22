@@ -46,6 +46,25 @@ Important keys:
 - `inference.output_dir` — where `{subject}/{subject}.pt` and reconstruction PNGs are written
 - `animation.*` — pose sequences and video settings for `anim.py`
 
+### Gaussian density (`k_num_gaussians`)
+
+Gaussians are anchored to the SMPL-X UV mesh: every triangle gets `avatar_template.k_num_gaussians` Gaussians, so the total is `num_faces × k_num_gaussians`. There is no adaptive densification, so `k` is the main knob for how many Gaussians live on each surface. To change it:
+
+1. **Set the count.** Edit `avatar_template.k_num_gaussians` in your config (e.g. `configs/nlfgs_gpu.yaml`) to any integer ≥ 1.
+2. **Barycentric layout (optional).** `avatar_template.barycentric_coords` controls where the Gaussians sit within each face. It is **omitted from the shipped configs**, so placement is auto-generated for any `k` and you normally only set `k_num_gaussians`. To pin an explicit layout, add a `barycentric_coords:` list with **exactly** `k_num_gaussians` rows of `[u, v, w]` (a mismatched row count is ignored and auto-generation is used instead).
+3. **Regenerate the template PLY.** The total count is baked into `models/avatar_template.ply`, so changing only the config has no effect until you rebuild it. Set `avatar_template.mode: generate` and run once (this rewrites the PLY), then switch back to `mode: default`. Alternatively, delete `models/avatar_template.ply` and it will regenerate on the next run.
+
+```yaml
+avatar_template:
+  mode: generate          # rebuild the PLY once, then set back to `default`
+  path: models/avatar_template.ply
+  cano_mesh_path: models/smplx/smplx_uv.obj
+  k_num_gaussians: 8      # e.g. double the density from the default of 4
+  # barycentric_coords:   # optional; omit to auto-generate for any k
+```
+
+Higher `k` increases quality/detail at a roughly linear cost in VRAM and speed (feature sampling, decoder, and rasterization all scale with the total Gaussian count). Existing checkpoints still load (they store network weights only, not Gaussian topology), but a new `k` needs a matching regenerated template and is best paired with retraining.
+
 ---
 
 ## Model assets
