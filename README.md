@@ -208,3 +208,36 @@ python src/evaluation/compute_metrics.py \
 ```
 
 Use `--test-views` to override which azimuth degrees are scored; otherwise views follow `data.num_views` from the config. LPIPS weights are cached under `models/lpips/`.
+
+#### Logging a run
+
+Pass `--log-dir` (and optionally `--run-name`, `--checkpoint`, `--tag`) to persist a machine-readable record of the evaluation instead of only printing to stdout:
+
+```bash
+python src/evaluation/compute_metrics.py \
+  --config-path configs/nlfgs_gpu.yaml \
+  --target-root processed --preds-root output --no-mask \
+  --log-dir eval_logs --run-name my_run --checkpoint models/checkpoints/your.ckpt
+```
+
+This writes `eval_logs/my_run.json` (timestamp, checkpoint, config, eval flags, aggregate PSNR/SSIM/LPIPS with mean/std/count, and per-subject metrics) and `eval_logs/my_run.log` (the human-readable console output). Use `--log-json PATH` to write the JSON to an explicit path.
+
+### Ablation study (repeated runs + statistics)
+
+For an ablation where each condition has several repeated runs (e.g. 3 seeds), `scripts/run_ablation.py` automates the full loop: for every checkpoint it runs `inference.py`, then `compute_metrics.py`, and finally aggregates the per-run means **across repeats** of each condition (mean / std / var / min / max, sample std with ddof=1).
+
+1. Edit `scripts/ablation_manifest.yaml` and fill in the real checkpoint paths per condition.
+2. Run:
+
+```bash
+python scripts/run_ablation.py --manifest scripts/ablation_manifest.yaml
+```
+
+Results are written to `ablation_results/<timestamp>/`:
+
+- `summary.json` — full stats plus every per-run record
+- `summary.csv` — one row per condition (mean/std/var/min/max per metric)
+- `summary.md` — table of `mean ± std` per condition
+- `logs/` — per-run inference logs and the `compute_metrics` JSON/log for each repeat
+
+Inference reuses the config's `inference.output_dir` (default `output/`), so repeats run strictly sequentially (inference → eval) before the next checkpoint overwrites the renders. Useful flags: `--dry-run` (print commands only), `--continue-on-error` (skip failed repeats), `--skip-inference` (evaluate existing renders only).

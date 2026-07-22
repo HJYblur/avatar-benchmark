@@ -1,0 +1,31 @@
+# Ablation study manifest for scripts/run_ablation.py
+#
+# Each condition lists the checkpoints for its repeated runs (e.g. 3 seeds).
+# The script runs inference + evaluation for every checkpoint, then aggregates
+# the per-run mean metrics across repeats (mean / std / var, sample ddof=1).
+#
+# Fill in the real checkpoint paths below (relative to repo root or absolute).
+
+config: configs/nlfgs_gpu.yaml   # config passed to inference.py and compute_metrics.py
+
+# Optional overrides; defaults are read from the config above.
+# target_root: processed         # GT images (default: data.processed_root)
+# preds_root: output             # inference renders (default: inference.output_dir)
+
+eval:
+  no_mask: true                  # true -> --no-mask (matches README default)
+  use_crop: false
+  test_views: [0, 120, 240]               # null = follow config; or a list like [0, 120, 240]
+
+conditions:
+  baseline:
+    checkpoints:
+      - models/checkpoints/baseline_r1.ckpt
+      - models/checkpoints/baseline_r2.ckpt
+      - models/checkpoints/baseline_r3.ckpt
+
+  no_fusion:
+    checkpoints:
+      - models/checkpoints/no_fusion_r1.ckpt
+      - models/checkpoints/no_fusion_r2.ckpt
+      - models/checkpoints/no_fusion_r3.ckpt

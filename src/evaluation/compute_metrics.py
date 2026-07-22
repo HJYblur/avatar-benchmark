@@ -10,7 +10,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import glob
+import json
 import os
+from datetime import datetime
 
 import cv2
 import imageio.v2 as imageio
@@ -298,7 +300,70 @@ def compute_metrics(preds_root, target_root, config_path=None, use_mask=True, us
     )
 
 
-def evaluate_metrics(preds_root, target_root, config_path=None, use_mask=True, use_crop=False, test_views=None):
+def _metric_summary(values):
+    """Aggregate a metric across all evaluated samples in a single run.
+
+    ``std``/``var`` here are the *within-run* spread over samples (ddof=1 when
+    more than one sample). Cross-run statistics over repeated experiments are
+    computed separately by ``scripts/run_ablation.py``.
+    """
+    arr = np.asarray([v for v in values if np.isfinite(v)], dtype="float64")
+    count = int(arr.size)
+    if count == 0:
+        return {"mean": None, "std": None, "var": None, "min": None, "max": None, "count": 0}
+    return {
+        "mean": float(arr.mean()),
+        "std": float(arr.std(ddof=1)) if count > 1 else 0.0,
+        "var": float(arr.var(ddof=1)) if count > 1 else 0.0,
+        "min": float(arr.min()),
+        "max": float(arr.max()),
+        "count": count,
+    }
+
+
+def _write_eval_logs(results, log_dir=None, run_name=None, log_json=None, human_lines=None):
+    """Persist a structured JSON record and a human-readable log for one eval run."""
+    written = {}
+
+    json_targets = []
+    if log_json:
+        json_targets.append(log_json)
+    if log_dir:
+        os.makedirs(log_dir, exist_ok=True)
+        json_targets.append(os.path.join(log_dir, f"{run_name}.json"))
+
+    for path in json_targets:
+        parent = os.path.dirname(path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(results, f, indent=2)
+        written["json"] = path
+        print(f"Wrote eval JSON log: {path}", flush=True)
+
+    if log_dir and human_lines is not None:
+        log_path = os.path.join(log_dir, f"{run_name}.log")
+        with open(log_path, "w") as f:
+            f.write("\n".join(human_lines) + "\n")
+        written["log"] = log_path
+        print(f"Wrote eval text log: {log_path}", flush=True)
+
+    return written
+
+
+def evaluate_metrics(
+    preds_root,
+    target_root,
+    config_path=None,
+    use_mask=True,
+    use_crop=False,
+    test_views=None,
+    checkpoint=None,
+    tag=None,
+    log_dir=None,
+    run_name=None,
+    log_json=None,
+):
     psnrs, ssims, lpips_alex, lpips_vgg, subject_metrics = compute_metrics(
         preds_root=preds_root,
         target_root=target_root,
@@ -311,24 +376,33 @@ def evaluate_metrics(preds_root, target_root, config_path=None, use_mask=True, u
     if psnrs.size == 0 or ssims.size == 0:
         raise RuntimeError("No valid image pairs were found for metric computation.")
 
-    print("###############################################", flush=True)
-    print(f"PSNR mean {psnrs.mean()}", flush=True)
-    print(f"SSIM mean {ssims.mean()}", flush=True)
-    print(f"LPIPS Alex mean {lpips_alex.mean()}", flush=True)
-    print(f"LPIPS VGG mean {lpips_vgg.mean()}", flush=True)
-    print(f"Evaluated samples: {psnrs.size}", flush=True)
-    
+    # Collect human-readable output so it can be both printed and logged to file.
+    lines = []
+
+    def emit(text=""):
+        lines.append(text)
+        print(text, flush=True)
+
+    emit("###############################################")
+    emit(f"PSNR mean {psnrs.mean()}")
+    emit(f"SSIM mean {ssims.mean()}")
+    emit(f"LPIPS Alex mean {lpips_alex.mean()}")
+    emit(f"LPIPS VGG mean {lpips_vgg.mean()}")
+    emit(f"Evaluated samples: {psnrs.size}")
+
     # Compute and display top 10 subjects by average LPIPS (lower is better)
-    print("\n###############################################", flush=True)
-    print("Top 10 subjects with lowest average LPIPS (Alex):", flush=True)
-    
+    emit("")
+    emit("###############################################")
+    emit("Top 10 subjects with lowest average LPIPS (Alex):")
+
     subject_avg_lpips = []
+    per_subject = {}
     for subject, metrics in subject_metrics.items():
         if metrics["lpips_alex"]:
-            avg_lpips_alex = np.mean(metrics["lpips_alex"])
-            avg_lpips_vgg = np.mean(metrics["lpips_vgg"])
-            avg_psnr = np.mean(metrics["psnr"])
-            avg_ssim = np.mean(metrics["ssim"])
+            avg_lpips_alex = float(np.mean(metrics["lpips_alex"]))
+            avg_lpips_vgg = float(np.mean(metrics["lpips_vgg"]))
+            avg_psnr = float(np.mean(metrics["psnr"]))
+            avg_ssim = float(np.mean(metrics["ssim"]))
             subject_avg_lpips.append({
                 "subject": subject,
                 "lpips_alex": avg_lpips_alex,
@@ -336,16 +410,58 @@ def evaluate_metrics(preds_root, target_root, config_path=None, use_mask=True, u
                 "psnr": avg_psnr,
                 "ssim": avg_ssim,
             })
-    
+            per_subject[subject] = {
+                "psnr": avg_psnr,
+                "ssim": avg_ssim,
+                "lpips_alex": avg_lpips_alex,
+                "lpips_vgg": avg_lpips_vgg,
+                "num_samples": len(metrics["lpips_alex"]),
+            }
+
     # Sort by LPIPS Alex (lower is better)
     subject_avg_lpips.sort(key=lambda x: x["lpips_alex"])
-    
+
     for i, item in enumerate(subject_avg_lpips[:10], 1):
-        print(
+        emit(
             f"{i}. {item['subject']}: LPIPS(Alex)={item['lpips_alex']:.4f}, "
-            f"LPIPS(VGG)={item['lpips_vgg']:.4f}, PSNR={item['psnr']:.4f}, SSIM={item['ssim']:.4f}",
-            flush=True
+            f"LPIPS(VGG)={item['lpips_vgg']:.4f}, PSNR={item['psnr']:.4f}, SSIM={item['ssim']:.4f}"
         )
+
+    # Build machine-readable results record.
+    results = {
+        "timestamp": datetime.now().isoformat(timespec="seconds"),
+        "checkpoint": str(checkpoint) if checkpoint is not None else None,
+        "tag": tag,
+        "config": str(config_path) if config_path is not None else None,
+        "preds_root": str(preds_root),
+        "target_root": str(target_root),
+        "use_mask": bool(use_mask),
+        "use_crop": bool(use_crop),
+        "test_views": list(test_views) if test_views is not None else None,
+        "num_samples": int(psnrs.size),
+        "num_subjects": len(per_subject),
+        "metrics": {
+            "psnr": _metric_summary(psnrs),
+            "ssim": _metric_summary(ssims),
+            "lpips_alex": _metric_summary(lpips_alex),
+            "lpips_vgg": _metric_summary(lpips_vgg),
+        },
+        "per_subject": per_subject,
+    }
+
+    if log_dir or log_json:
+        if run_name is None:
+            stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            run_name = f"eval_{tag}_{stamp}" if tag else f"eval_{stamp}"
+        _write_eval_logs(
+            results,
+            log_dir=log_dir,
+            run_name=run_name,
+            log_json=log_json,
+            human_lines=lines,
+        )
+
+    return results
 
 
 if __name__ == "__main__":
@@ -359,6 +475,11 @@ if __name__ == "__main__":
     parser.add_argument("--no-mask", dest="use_mask", action="store_false", help="Disable mask for evaluation")
     parser.add_argument("--use-crop", action="store_true", default=False, help="Use fixed crop for evaluation")
     parser.add_argument("--test-views", nargs="+", type=int, help="Test views for evaluation")
+    parser.add_argument("--checkpoint", default=None, help="Checkpoint path recorded in the log for provenance")
+    parser.add_argument("--tag", default=None, help="Optional run tag recorded in the log (e.g. condition name)")
+    parser.add_argument("--log-dir", default=None, help="Directory to write <run-name>.json and <run-name>.log")
+    parser.add_argument("--run-name", default=None, help="Basename for log files (default: eval_<timestamp>)")
+    parser.add_argument("--log-json", default=None, help="Explicit path to write the JSON results record")
     args = parser.parse_args()
     
     config_path = args.config_path
@@ -393,5 +514,10 @@ if __name__ == "__main__":
         config_path=config_path,
         use_mask=args.use_mask,
         use_crop=args.use_crop,
-        test_views=test_views
+        test_views=test_views,
+        checkpoint=args.checkpoint,
+        tag=args.tag,
+        log_dir=args.log_dir,
+        run_name=args.run_name,
+        log_json=args.log_json,
     )
