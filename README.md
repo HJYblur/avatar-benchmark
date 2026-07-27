@@ -211,6 +211,37 @@ python anim.py --config configs/nlfgs_gpu.yaml --start-subject 0001 --end-subjec
 
 Requires a prior inference `.pt` under `inference.output_dir/<subject>/`.
 
+### Input vs. SMPL-X vs. output comparison
+
+`scripts/render_smplx_vs_output.py` renders the **processed input**, the **estimated SMPL-X body mesh**, and the **NLF-GS output** side-by-side into one image (one row per view: `[ input | SMPL-X | output ]`). The input panel is the preprocessed GT image (`processed/<subject>/<subject>_<view>.png`); the middle panel rasterizes the SMPL-X shape with pyrender using the canonical orbit camera; the right panel is the reconstructed Gaussian avatar, either rendered live with gsplat (needs CUDA) or loaded from saved `reconstructed_<view>.png` files. Any panel with a missing source is drawn as a labeled placeholder.
+
+Inputs come from the inference bundle `output/<subject>/<subject>.pt` (which stores `vertices3d`, `gaussian_3d`, and `gaussian_params`) when present, so you can run this after `inference.py` with no GPU:
+
+```bash
+python scripts/render_smplx_vs_output.py --config configs/nlfgs_gpu.yaml \
+  --subject 0007 --views 0,90,180,270 --output-source png
+```
+
+Or generate everything live from a checkpoint (renders both panels with gsplat, requires CUDA):
+
+```bash
+python scripts/render_smplx_vs_output.py --config configs/nlfgs_gpu.yaml \
+  --checkpoint models/checkpoints/your.ckpt --subject 0007
+```
+
+The comparison PNG is written to `output/<subject>/<subject>_smplx_vs_output.png`. Omit `--subject` to process every subject in `data.val_subject_path`; `--output-source auto` (default) renders with gsplat when CUDA is available and otherwise falls back to saved reconstruction PNGs.
+
+### SMPL-X wireframe overlay
+
+`scripts/overlay_smplx_wireframe.py` projects the estimated SMPL-X vertices onto the images and draws the mesh edges **on top of** the input and/or output (instead of a separate mesh panel), which is handy for checking body–image alignment. Each row is one view: `[ input + wireframe | output + wireframe ]`. Vertices are projected with the same camera as the rest of the project; back-facing triangles are culled by default so the front surface reads as a clean wireframe.
+
+```bash
+python scripts/overlay_smplx_wireframe.py --config configs/nlfgs_gpu.yaml \
+  --subject 0007 --views 0,90,180,270 --output-source png
+```
+
+Useful flags: `--targets input,output` (which images to overlay on), `--mode wireframe|points`, `--color R G B`, `--thickness`, `--alpha` (overlay opacity), and `--no-cull` (draw all front edges, no back-face culling). Overlays are written to `output/<subject>/<subject>_smplx_wireframe.png`. Like the comparison script it reuses the inference bundle when present (no GPU needed with `--output-source png`) or runs inference from `--checkpoint`.
+
 ### Evaluation
 
 Compare inference renders against ground truth. By default:
